@@ -160,18 +160,22 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
             </div>
 
             {/* Numpad for touch devices */}
-            <div className="grid grid-cols-3 gap-2">
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "del"].map((key) => (
+            <div className="grid grid-cols-4 gap-2">
+              {["1", "2", "3", "del", "4", "5", "6", "C", "7", "8", "9", ".", "0", "00"].map((key) => (
                 <Button
                   key={key}
                   type="button"
-                  variant="secondary"
-                  className="h-12 text-xl font-mono"
+                  variant={key === "C" ? "destructive" : "secondary"}
+                  className={`h-12 text-xl font-mono ${key === "0" ? "col-span-2" : ""}`}
                   onClick={() => {
                     if (key === "del") {
                       setAmountTendered((prev) => prev.slice(0, -1));
+                    } else if (key === "C") {
+                      setAmountTendered("");
                     } else if (key === "." && amountTendered.includes(".")) {
                       return;
+                    } else if (key === "00") {
+                      setAmountTendered((prev) => prev + "00");
                     } else {
                       setAmountTendered((prev) => prev + key);
                     }
