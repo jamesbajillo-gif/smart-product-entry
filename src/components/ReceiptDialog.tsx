@@ -1,7 +1,7 @@
-import { useRef } from "react";
 import { OrderItem } from "@/types/product";
-import { X, Printer, CheckCircle, Banknote, Smartphone } from "lucide-react";
+import { X, CheckCircle, Banknote, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import { PaymentDetails } from "./PaymentDialog";
 
 interface ReceiptDialogProps {
@@ -11,50 +11,17 @@ interface ReceiptDialogProps {
 }
 
 export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogProps) {
-  const receiptRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const now = new Date();
 
-  const handlePrint = () => {
-    const printContent = receiptRef.current;
-    if (!printContent) return;
-
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Receipt</title>
-          <style>
-            body {
-              font-family: 'Courier New', monospace;
-              padding: 20px;
-              max-width: 300px;
-              margin: 0 auto;
-            }
-            .header { text-align: center; margin-bottom: 20px; }
-            .header h1 { font-size: 18px; margin: 0; }
-            .header p { font-size: 12px; color: #666; margin: 5px 0; }
-            .divider { border-top: 1px dashed #333; margin: 10px 0; }
-            .item { display: flex; justify-content: space-between; font-size: 12px; margin: 5px 0; }
-            .item-name { flex: 1; }
-            .item-qty { width: 40px; text-align: center; }
-            .item-price { width: 70px; text-align: right; }
-            .total { display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; margin-top: 10px; }
-            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-          </style>
-        </head>
-        <body>
-          ${printContent.innerHTML}
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
-    printWindow.close();
+  const handleSubmit = () => {
+    toast({
+      title: "Sale Complete",
+      description: `Total amount sold: ₱${total.toFixed(2)}`,
+    });
+    onClose();
   };
 
   return (
@@ -75,7 +42,6 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
 
         {/* Receipt Content */}
         <div
-          ref={receiptRef}
           className="bg-card border border-border rounded-lg p-4 font-mono text-sm"
         >
           <div className="header text-center mb-4">
@@ -156,11 +122,10 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
         {/* Actions */}
         <div className="flex gap-3 mt-4">
           <Button variant="outline" className="flex-1" onClick={onClose}>
-            Close
+            Cancel
           </Button>
-          <Button className="flex-1 gap-2" onClick={handlePrint}>
-            <Printer className="w-4 h-4" />
-            Print Receipt
+          <Button className="flex-1" onClick={handleSubmit}>
+            Submit
           </Button>
         </div>
       </div>
