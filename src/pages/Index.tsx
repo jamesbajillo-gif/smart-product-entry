@@ -86,6 +86,18 @@ const Index = () => {
     setOrderItems((prev) => prev.filter((item) => item.product.id !== productId));
   }, []);
 
+  const handleUpdateQuantity = useCallback((productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      setOrderItems((prev) => prev.filter((item) => item.product.id !== productId));
+    } else {
+      setOrderItems((prev) =>
+        prev.map((item) =>
+          item.product.id === productId ? { ...item, quantity } : item
+        )
+      );
+    }
+  }, []);
+
   const handleClearOrder = useCallback(() => {
     setOrderItems([]);
     toast({
@@ -164,6 +176,7 @@ const Index = () => {
         <OrderSidebar
           items={orderItems}
           onRemoveItem={handleRemoveItem}
+          onUpdateQuantity={handleUpdateQuantity}
           onClearOrder={handleClearOrder}
         />
       </div>

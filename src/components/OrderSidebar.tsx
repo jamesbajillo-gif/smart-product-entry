@@ -1,14 +1,15 @@
 import { OrderItem } from "@/types/product";
-import { Trash2, ShoppingCart } from "lucide-react";
+import { Trash2, ShoppingCart, Plus, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface OrderSidebarProps {
   items: OrderItem[];
   onRemoveItem: (productId: string) => void;
+  onUpdateQuantity: (productId: string, quantity: number) => void;
   onClearOrder: () => void;
 }
 
-export function OrderSidebar({ items, onRemoveItem, onClearOrder }: OrderSidebarProps) {
+export function OrderSidebar({ items, onRemoveItem, onUpdateQuantity, onClearOrder }: OrderSidebarProps) {
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -37,24 +38,38 @@ export function OrderSidebar({ items, onRemoveItem, onClearOrder }: OrderSidebar
           items.map((item) => (
             <div
               key={item.product.id}
-              className="group flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary hover:shadow-sm transition-all duration-200 animate-fade-in"
+              className="group p-3 bg-secondary/50 rounded-lg hover:bg-secondary hover:shadow-sm transition-all duration-200 animate-fade-in"
             >
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-foreground truncate">{item.product.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  ₱{item.product.price.toFixed(2)} × {item.quantity}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-mono font-semibold text-primary">
-                  ₱{(item.product.price * item.quantity).toFixed(2)}
-                </span>
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-medium text-foreground truncate flex-1">{item.product.name}</p>
                 <button
                   onClick={() => onRemoveItem(item.product.id)}
                   className="p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-destructive/20 text-destructive transition-all"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
+                    className="p-1 rounded-md bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="w-8 text-center font-mono text-sm text-foreground">
+                    {item.quantity}
+                  </span>
+                  <button
+                    onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
+                    className="p-1 rounded-md bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                <span className="font-mono font-semibold text-primary">
+                  ₱{(item.product.price * item.quantity).toFixed(2)}
+                </span>
               </div>
             </div>
           ))
