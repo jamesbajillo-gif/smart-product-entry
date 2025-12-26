@@ -28,9 +28,9 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
       <div className="glass-panel rounded-xl p-6 w-full max-w-md mx-4 animate-scale-in">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2 text-success">
+          <div className="flex items-center gap-2 text-primary">
             <CheckCircle className="w-5 h-5" />
-            <h2 className="text-xl font-semibold">Order Complete</h2>
+            <h2 className="text-xl font-semibold">Review Order</h2>
           </div>
           <button
             onClick={onClose}
