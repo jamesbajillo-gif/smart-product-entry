@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { OrderItem } from "@/types/product";
 import { X, CheckCircle, Banknote, Smartphone, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,17 +30,24 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
     }, 1500);
   };
 
-  // Enter key to submit
+  // Enter key to submit (unless Cancel button is focused)
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Enter" && !isSubmitted) {
         e.preventDefault();
-        handleSubmit();
+        // If Cancel button is focused, close instead of submit
+        if (document.activeElement === cancelRef.current) {
+          onClose();
+        } else {
+          handleSubmit();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSubmitted]);
+  }, [isSubmitted, onClose]);
 
   if (isSubmitted) {
     return (
@@ -158,7 +165,7 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
 
         {/* Actions */}
         <div className="flex gap-3 mt-4">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
+          <Button ref={cancelRef} variant="outline" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button className="flex-1" onClick={handleSubmit}>
