@@ -74,15 +74,29 @@ export function ProductSearch({
     inputRef.current?.focus();
   }, []);
 
-  // Global keyboard listener
+  // Global keyboard listener - only when no dialogs are open
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // Only capture if not already focused on input
-      if (document.activeElement !== inputRef.current) {
-        // Alphanumeric keys trigger search
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          inputRef.current?.focus();
-        }
+      // Skip if already focused on this input
+      if (document.activeElement === inputRef.current) return;
+      
+      // Skip if focused on any input, textarea, select, or button
+      const activeEl = document.activeElement;
+      if (activeEl instanceof HTMLInputElement ||
+          activeEl instanceof HTMLTextAreaElement ||
+          activeEl instanceof HTMLSelectElement ||
+          activeEl instanceof HTMLButtonElement) {
+        return;
+      }
+      
+      // Skip if any dialog/modal is open (check for z-50 overlay)
+      if (document.querySelector('.fixed.inset-0.z-50')) {
+        return;
+      }
+      
+      // Alphanumeric keys trigger search focus
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        inputRef.current?.focus();
       }
     };
 
