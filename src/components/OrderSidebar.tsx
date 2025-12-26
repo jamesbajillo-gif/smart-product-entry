@@ -37,7 +37,7 @@ export function OrderSidebar({ items, onRemoveItem, onClearOrder }: OrderSidebar
           items.map((item) => (
             <div
               key={item.product.id}
-              className="group flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary transition-colors animate-fade-in"
+              className="group flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary hover:shadow-sm transition-all duration-200 animate-fade-in"
             >
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-foreground truncate">{item.product.name}</p>
