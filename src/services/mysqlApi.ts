@@ -2,7 +2,7 @@
 
 const API_URL = import.meta.env.VITE_MYSQL_API_URL || "";
 
-interface ApiResponse<T = unknown> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   message?: string;
@@ -21,17 +21,20 @@ interface FetchOptions {
   offset?: number;
   order_by?: string;
   order_dir?: "ASC" | "DESC";
+  action?: string;
+  query?: string;
 }
 
 async function apiRequest<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   options: FetchOptions = {}
 ): Promise<ApiResponse<T>> {
-  const { table, id, data, filters, limit, offset, order_by, order_dir } = options;
+  const { table, id, data, filters, limit, offset, order_by, order_dir, action, query } = options;
 
   let url = API_URL;
   const params = new URLSearchParams();
 
+  if (action) params.append("action", action);
   if (table) params.append("table", table);
   if (id) params.append("id", String(id));
   if (limit) params.append("limit", String(limit));
@@ -58,11 +61,12 @@ async function apiRequest<T>(
     },
   };
 
-  if (method !== "GET" && (data || table)) {
+  if (method !== "GET" && (data || table || query)) {
     fetchOptions.body = JSON.stringify({
       table,
       id,
       data,
+      query,
       ...(filters && { filters }),
     });
   }
@@ -212,3 +216,117 @@ export const checkApiConnection = async (): Promise<boolean> => {
     return false;
   }
 };
+
+// Database Management API
+export interface TableColumn {
+  Field: string;
+  Type: string;
+  Null: string;
+  Key: string;
+  Default: string | null;
+  Extra: string;
+}
+
+export interface TableInfo {
+  name: string;
+  columns: TableColumn[];
+  primary_keys: string[];
+}
+
+export const databaseApi = {
+  // Get database info
+  getInfo: async () => {
+    const result = await apiRequest<{ database: string; version: string; driver: string }>(
+      "GET",
+      { action: "info" }
+    );
+    return result;
+  },
+
+  // List all tables
+  listTables: async () => {
+    const result = await apiRequest<string[]>("GET", { action: "tables" });
+    return result;
+  },
+
+  // Describe table structure
+  describeTable: async (tableName: string) => {
+    const result = await apiRequest<{
+      table: string;
+      columns: TableColumn[];
+      primary_keys: string[];
+      column_count: number;
+    }>("GET", { action: "describe", table: tableName });
+    return result;
+  },
+
+  // Execute custom query (SELECT only)
+  executeQuery: async (query: string) => {
+    const result = await apiRequest<unknown[]>("POST", { action: "query", query });
+    return result;
+  },
+
+  // Create table using raw SQL
+  createTable: async (createTableSQL: string) => {
+    const result = await apiRequest<unknown>("POST", { action: "query", query: createTableSQL });
+    return result;
+  },
+};
+
+// Required schema for the POS system
+export const REQUIRED_SCHEMA = {
+  products: {
+    tableName: "products",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "name", type: "VARCHAR(255) NOT NULL" },
+      { name: "price", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "category", type: "VARCHAR(100)" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS products (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      price DECIMAL(10,2) NOT NULL,
+      category VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  sales: {
+    tableName: "sales",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "items", type: "JSON" },
+      { name: "total", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "payment_method", type: "VARCHAR(50) NOT NULL" },
+      { name: "amount_tendered", type: "DECIMAL(10,2)" },
+      { name: "change_amount", type: "DECIMAL(10,2)" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS sales (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      items JSON,
+      total DECIMAL(10,2) NOT NULL,
+      payment_method VARCHAR(50) NOT NULL,
+      amount_tendered DECIMAL(10,2),
+      change_amount DECIMAL(10,2),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+  },
+  quantity_history: {
+    tableName: "quantity_history",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "product_id", type: "VARCHAR(50) NOT NULL" },
+      { name: "quantities", type: "JSON" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS quantity_history (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id VARCHAR(50) NOT NULL,
+      quantities JSON,
+      UNIQUE KEY unique_product (product_id)
+    )`,
+  },
+};
+
+export const getApiUrl = () => API_URL;
