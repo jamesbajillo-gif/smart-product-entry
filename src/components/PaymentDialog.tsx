@@ -31,6 +31,19 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
     }
   }, [selectedMethod]);
 
+  // Auto-focus input when typing numbers
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (selectedMethod === "cash" && /^[0-9.]$/.test(e.key)) {
+        if (document.activeElement !== inputRef.current) {
+          inputRef.current?.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedMethod]);
+
   const handleConfirm = () => {
     if (selectedMethod === "gcash") {
       onConfirm({ method: "gcash" });
