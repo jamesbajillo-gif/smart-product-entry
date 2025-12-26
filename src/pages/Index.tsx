@@ -52,14 +52,9 @@ const Index = () => {
         return [...prev, { product: selectedProduct, quantity }];
       });
 
-      toast({
-        title: "Added to order",
-        description: `${quantity}× ${selectedProduct.name} (₱${(selectedProduct.price * quantity).toFixed(2)})`,
-      });
-
       setSelectedProduct(null);
     },
-    [selectedProduct, toast]
+    [selectedProduct]
   );
 
   const handleNewProductConfirm = useCallback(
