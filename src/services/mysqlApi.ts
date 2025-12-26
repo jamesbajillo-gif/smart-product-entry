@@ -1,5 +1,11 @@
 // MySQL API Service - works with the General-Purpose MySQL CRUD API
 
+// Format date to MySQL compatible format (YYYY-MM-DD HH:MM:SS)
+const formatMySQLDateTime = (date: Date): string => {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
 // Allow manual override via localStorage
 const getApiUrl = (): string => {
   const manualUrl = localStorage.getItem("mysql-api-url");
@@ -157,12 +163,14 @@ export const salesApi = {
     return result;
   },
 
-  create: async (sale: Omit<SaleRecord, "id" | "created_at">) => {
+  create: async (sale: Omit<SaleRecord, "id"> & { created_at?: string }) => {
     const result = await apiRequest<{ id: number }>("POST", {
       table: "sales",
       data: {
         ...sale,
-        created_at: new Date().toISOString(),
+        created_at: sale.created_at 
+          ? formatMySQLDateTime(new Date(sale.created_at))
+          : formatMySQLDateTime(new Date()),
       },
     });
     return result;
