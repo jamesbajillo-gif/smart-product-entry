@@ -15,4 +15,7 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    'import.meta.env.VITE_MYSQL_API_URL': JSON.stringify(process.env.MYSQL_API_URL || ''),
+  },
 }));
