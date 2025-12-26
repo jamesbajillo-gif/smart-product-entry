@@ -148,15 +148,15 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
                 </>
               )}
             </div>
-            {paymentDetails.method === "cash" && paymentDetails.amountTendered && (
+            {paymentDetails.method === "cash" && (
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Tendered</span>
-                  <span className="text-foreground">₱{paymentDetails.amountTendered.toFixed(2)}</span>
+                  <span className="text-foreground">₱{(paymentDetails.amountTendered ?? total).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Change</span>
-                  <span className="text-success font-semibold">₱{paymentDetails.change?.toFixed(2)}</span>
+                  <span className="text-success font-semibold">₱{(paymentDetails.change ?? 0).toFixed(2)}</span>
                 </div>
               </div>
             )}
