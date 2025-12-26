@@ -6,11 +6,14 @@ const formatMySQLDateTime = (date: Date): string => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
+// Default API URL - can be overridden via localStorage
+const DEFAULT_API_URL = "http://api.techpinoy.net/mysql/api.php";
+
 // Allow manual override via localStorage
 const getApiUrl = (): string => {
   const manualUrl = localStorage.getItem("mysql-api-url");
   if (manualUrl) return manualUrl;
-  return import.meta.env.VITE_MYSQL_API_URL || "";
+  return import.meta.env.VITE_MYSQL_API_URL || DEFAULT_API_URL;
 };
 
 export const setApiUrl = (url: string) => {
