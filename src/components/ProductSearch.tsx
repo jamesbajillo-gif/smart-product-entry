@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Product, PRODUCT_CATEGORIES } from "@/types/product";
 import { Search, Plus, Tag, AlertTriangle, Package } from "lucide-react";
+import { useGCashFunds } from "@/hooks/useGCashFunds";
 
 interface ProductSearchProps {
   products: Product[];
@@ -32,12 +33,19 @@ export function ProductSearch({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const { funds: gcashFunds } = useGCashFunds();
 
-  const filteredProducts = products.filter((product) =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return [];
+    
+    // Filter products that match the search query
+    return products.filter((product) =>
+      product.name.toLowerCase().includes(query)
+    );
+  }, [products, searchQuery]);
 
-  // Group products by category
+  // Group products by category, and within category, group by name to show price variations
   const groupedProducts = useMemo(() => {
     const groups: Record<string, Product[]> = {};
     
@@ -53,16 +61,40 @@ export function ProductSearch({
     const sortedGroups: { category: string; products: Product[] }[] = [];
     PRODUCT_CATEGORIES.forEach((cat) => {
       if (groups[cat]) {
-        sortedGroups.push({ category: cat, products: groups[cat] });
+        // Sort products by name, then by price (to group same names together)
+        const sorted = groups[cat].sort((a, b) => {
+          const nameCompare = a.name.localeCompare(b.name);
+          if (nameCompare !== 0) return nameCompare;
+          return a.price - b.price; // Same name: sort by price
+        });
+        sortedGroups.push({ category: cat, products: sorted });
       }
     });
 
     return sortedGroups;
   }, [filteredProducts]);
 
-  // Flatten for keyboard navigation
+  // Flatten for keyboard navigation - includes base products and variations
   const flatProducts = useMemo(() => {
-    return groupedProducts.flatMap((g) => g.products);
+    const flat: Product[] = [];
+    groupedProducts.forEach(({ products: categoryProducts }) => {
+      categoryProducts.forEach((product) => {
+        const variations = product.variations || [];
+        // Add base product
+        flat.push(product);
+        // Add variations
+        variations.forEach(v => {
+          flat.push({
+            ...product,
+            id: `${product.id}-${v.id || v.name}`,
+            name: product.name, // Keep base product name
+            price: v.price,
+            stock_quantity: v.stock_quantity,
+          });
+        });
+      });
+    });
+    return flat;
   }, [groupedProducts]);
 
   const showAddNew = searchQuery.length > 0 && filteredProducts.length === 0;
@@ -108,28 +140,36 @@ export function ProductSearch({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const maxIndex = showAddNew ? 0 : flatProducts.length - 1;
+      // Calculate max index: include "Add New" option if shown
+      const maxIndex = showAddNew ? flatProducts.length : Math.max(0, flatProducts.length - 1);
 
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          setSelectedIndex((prev) => Math.min(prev + 1, maxIndex));
+          setSelectedIndex((prev) => {
+            const next = prev + 1;
+            return next > maxIndex ? 0 : next; // Wrap to top
+          });
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedIndex((prev) => Math.max(prev - 1, 0));
+          setSelectedIndex((prev) => {
+            const next = prev - 1;
+            return next < 0 ? maxIndex : next; // Wrap to bottom
+          });
           break;
         case "Enter":
           e.preventDefault();
           if (!searchQuery) {
             onCheckout();
-          } else if (showAddNew) {
+          } else if (showAddNew && selectedIndex === flatProducts.length) {
             onAddNewProduct(searchQuery);
           } else if (flatProducts[selectedIndex]) {
             onProductSelect(flatProducts[selectedIndex]);
           }
           break;
         case "Escape":
+          e.preventDefault();
           onSearchChange("");
           break;
       }
@@ -144,7 +184,10 @@ export function ProductSearch({
   }, [selectedIndex]);
 
   // Get flat index for a product
-  const getFlatIndex = (product: Product) => {
+  const getFlatIndex = (product: Product, isVariation = false, variationId?: string) => {
+    if (isVariation && variationId) {
+      return flatProducts.findIndex((p) => p.id === `${product.id}-${variationId}`);
+    }
     return flatProducts.findIndex((p) => p.id === product.id);
   };
 
@@ -175,62 +218,126 @@ export function ProductSearch({
                 {category}
               </div>
               <div className="space-y-1">
-                {categoryProducts.map((product) => {
-                  const flatIndex = getFlatIndex(product);
-                  const stockStatus = getStockStatus(product);
-                  const stock = product.stock_quantity ?? 0;
+                {categoryProducts.flatMap((product) => {
+                  const variations = product.variations || [];
                   
-                  return (
-                    <button
-                      key={product.id}
-                      data-index={flatIndex}
-                      onClick={() => onProductSelect(product)}
-                      className={`w-full flex items-center justify-between p-4 rounded-lg transition-all ${
-                        flatIndex === selectedIndex
-                          ? "bg-primary/20 border border-primary/50"
-                          : "bg-secondary/50 hover:bg-secondary border border-transparent"
-                      } ${stockStatus === 'out' ? 'opacity-60' : ''}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        {product.image_url ? (
-                          <img
-                            src={product.image_url}
-                            alt={product.name}
-                            className="w-10 h-10 object-cover rounded-lg"
-                            onError={(e) => (e.currentTarget.style.display = 'none')}
-                          />
-                        ) : (
-                          <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
-                            <Package className="w-5 h-5 text-muted-foreground/50" />
-                          </div>
-                        )}
-                        <div className="text-left">
-                          <span className="font-medium text-foreground">{product.name}</span>
-                          {/* Stock indicator */}
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            {stockStatus === 'out' ? (
-                              <span className="text-xs text-destructive flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3" />
-                                Out of stock
-                              </span>
-                            ) : stockStatus === 'low' ? (
-                              <span className="text-xs text-warning flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3" />
-                                Low stock ({stock})
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                {stock} in stock
-                              </span>
+                  // Create array with base product and all variations
+                  const itemsToShow = [
+                    { product, isVariation: false, variation: null },
+                    ...variations.map(v => {
+                      // Check if variation name is auto-generated (contains price pattern)
+                      // Auto-generated format: "Product Name - ₱X.XX"
+                      const variationName = v.name && v.name.trim() ? v.name.trim() : '';
+                      const isAutoGenerated = variationName && 
+                        variationName.includes(' - ₱') && 
+                        /₱\d+\.\d{2}$/.test(variationName);
+                      
+                      // Display format: "Product - Variation Name" if user-provided name exists
+                      // Otherwise just use product name (for auto-generated or no name)
+                      const displayName = variationName && !isAutoGenerated
+                        ? `${product.name} - ${variationName}`
+                        : product.name;
+                      
+                      return {
+                        product: { 
+                          ...product, 
+                          id: `${product.id}-${v.id || v.name}`,
+                          name: displayName,
+                          price: v.price, 
+                          stock_quantity: v.stock_quantity 
+                        }, 
+                        isVariation: true, 
+                        variation: v 
+                      };
+                    })
+                  ];
+                  
+                  return itemsToShow.map((item, itemIdx) => {
+                    const itemProduct = item.product;
+                    const itemStockStatus = getStockStatus(itemProduct);
+                    const itemStock = itemProduct.stock_quantity ?? 0;
+                    // Find the index in flatProducts array
+                    const itemIndex = flatProducts.findIndex(p => p.id === itemProduct.id);
+                    const isSelected = itemIndex >= 0 && itemIndex === selectedIndex;
+                    
+                    return (
+                      <button
+                        key={itemProduct.id}
+                        data-index={itemIndex}
+                        onClick={() => onProductSelect(itemProduct)}
+                        className={`w-full flex items-center justify-between p-4 rounded-lg transition-all ${
+                          isSelected
+                            ? "bg-primary/20 border border-primary/50 ring-2 ring-primary/30"
+                            : "bg-secondary/50 hover:bg-secondary border border-transparent"
+                        } ${itemStockStatus === 'out' ? 'opacity-60' : ''} ${item.isVariation ? 'ml-4 border-l-2 border-primary/30' : ''}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {product.image_url ? (
+                            <img
+                              src={product.image_url}
+                              alt={itemProduct.name}
+                              className="w-10 h-10 object-cover rounded-lg"
+                              onError={(e) => (e.currentTarget.style.display = 'none')}
+                            />
+                          ) : (
+                            <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
+                              <Package className="w-5 h-5 text-muted-foreground/50" />
+                            </div>
+                          )}
+                          <div className="text-left">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-foreground">{itemProduct.name}</span>
+                              {item.isVariation && (
+                                <span className="text-xs text-muted-foreground/70 px-1.5 py-0.5 bg-info/20 text-info rounded">
+                                  Variation
+                                </span>
+                              )}
+                            </div>
+                            {/* Stock indicator - only show for products that track stock */}
+                            {!itemProduct.skip_stock_tracking && (
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {itemStockStatus === 'out' ? (
+                                  <span className="text-xs text-destructive flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    Out of stock
+                                  </span>
+                                ) : itemStockStatus === 'low' ? (
+                                  <span className="text-xs text-warning flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    Low stock ({itemStock})
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">
+                                    {itemStock} in stock
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                         </div>
-                      </div>
-                      <span className="text-primary font-mono font-semibold">
-                        ₱{product.price.toFixed(2)}
-                      </span>
-                    </button>
-                  );
+                        {(() => {
+                          // Check if this is GCash product
+                          const isGcash = itemProduct.name.toUpperCase() === "GCASH" || itemProduct.name.toUpperCase() === "GCASH SERVICE";
+                          
+                          if (isGcash) {
+                            return (
+                              <div className="text-right">
+                                <span className="text-info font-mono font-semibold block">
+                                  Funds: ₱{gcashFunds.toFixed(2)}
+                                </span>
+                              </div>
+                            );
+                          }
+                          
+                          return (
+                            <span className="text-primary font-mono font-semibold">
+                              ₱{itemProduct.price.toFixed(2)}
+                            </span>
+                          );
+                        })()}
+                      </button>
+                    );
+                  });
                 })}
               </div>
             </div>
@@ -238,8 +345,13 @@ export function ProductSearch({
 
           {showAddNew && (
             <button
+              data-index={flatProducts.length}
               onClick={() => onAddNewProduct(searchQuery)}
-              className="w-full flex items-center justify-center gap-3 p-4 rounded-lg bg-primary/10 border border-primary/30 hover:bg-primary/20 transition-all text-primary"
+              className={`w-full flex items-center justify-center gap-3 p-4 rounded-lg transition-all ${
+                selectedIndex === flatProducts.length
+                  ? "bg-primary/20 border border-primary/50 ring-2 ring-primary/30 text-primary"
+                  : "bg-primary/10 border border-primary/30 hover:bg-primary/20 text-primary"
+              }`}
             >
               <Plus className="w-5 h-5" />
               <span className="font-medium">Add "{searchQuery}" as new product</span>

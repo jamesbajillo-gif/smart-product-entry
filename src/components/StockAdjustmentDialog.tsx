@@ -33,15 +33,28 @@ export function StockAdjustmentDialog({
   onConfirm,
   onCancel,
 }: StockAdjustmentDialogProps) {
-  const [mode, setMode] = useState<RestockMode>('pieces');
-  const [packagingType, setPackagingType] = useState<PackagingType>('case');
+  // Check if product is in Cigarettes category (case-insensitive)
+  const isCigarettes = product.category?.toLowerCase().trim() === 'cigarettes';
+  
+  // For cigarettes, force bulk mode with pack type and 20 units per pack
+  const [mode, setMode] = useState<RestockMode>(isCigarettes ? 'bulk' : 'pieces');
+  const [packagingType, setPackagingType] = useState<PackagingType>(isCigarettes ? 'pack' : 'case');
   const [packageCount, setPackageCount] = useState(1);
-  const [unitsPerPackage, setUnitsPerPackage] = useState(12);
+  const [unitsPerPackage, setUnitsPerPackage] = useState(isCigarettes ? 20 : 12);
   const [packagePrice, setPackagePrice] = useState("");
   const [piecesQuantity, setPiecesQuantity] = useState(1);
   const [piecePrice, setPiecePrice] = useState("");
   const [supplier, setSupplier] = useState("");
   const [notes, setNotes] = useState("");
+  
+  // Force cigarettes to use bulk mode with pack and 20 units
+  useEffect(() => {
+    if (isCigarettes) {
+      setMode('bulk');
+      setPackagingType('pack');
+      setUnitsPerPackage(20);
+    }
+  }, [isCigarettes]);
 
   // Calculate totals based on mode
   const quantity = mode === 'bulk' 
@@ -121,31 +134,39 @@ export function StockAdjustmentDialog({
             )}
           </div>
 
-          {/* Mode Toggle: Pieces vs Bulk */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setMode('pieces')}
-              className={`flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition-colors ${
-                mode === 'pieces'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              Pieces
-            </button>
-            <button
-              onClick={() => setMode('bulk')}
-              className={`flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition-colors ${
-                mode === 'bulk'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              Bulk
-            </button>
-          </div>
+          {/* Mode Toggle: Pieces vs Bulk - Disabled for cigarettes */}
+          {isCigarettes ? (
+            <div className="p-3 bg-info/10 rounded-lg border border-info/30">
+              <p className="text-sm text-info font-medium">
+                Cigarettes must be restocked by packs (20 pieces per pack)
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setMode('pieces')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition-colors ${
+                  mode === 'pieces'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                Pieces
+              </button>
+              <button
+                onClick={() => setMode('bulk')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition-colors ${
+                  mode === 'bulk'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                Bulk
+              </button>
+            </div>
+          )}
 
           {/* PIECES MODE */}
           {mode === 'pieces' && (
@@ -187,26 +208,32 @@ export function StockAdjustmentDialog({
           {/* BULK MODE */}
           {mode === 'bulk' && (
             <>
-              {/* Packaging Type Selection */}
+              {/* Packaging Type Selection - Locked to Pack for cigarettes */}
               <div>
                 <label className="text-sm text-muted-foreground block mb-2">
                   Packaging Type
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {PACKAGING_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => setPackagingType(option.value)}
-                      className={`p-2 rounded-lg text-sm font-medium transition-colors ${
-                        packagingType === option.value
-                          ? 'bg-primary/20 text-primary border border-primary/30'
-                          : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
+                {isCigarettes ? (
+                  <div className="p-3 bg-primary/20 rounded-lg border border-primary/30">
+                    <p className="text-sm font-medium text-primary">Pack (Fixed for cigarettes)</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {PACKAGING_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => setPackagingType(option.value)}
+                        className={`p-2 rounded-lg text-sm font-medium transition-colors ${
+                          packagingType === option.value
+                            ? 'bg-primary/20 text-primary border border-primary/30'
+                            : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Number of Packages */}
@@ -237,24 +264,33 @@ export function StockAdjustmentDialog({
                 </div>
               </div>
 
-              {/* Units per Package */}
+              {/* Units per Package - Fixed at 20 for cigarettes */}
               <div>
                 <label className="text-sm text-muted-foreground block mb-2">
-                  Pieces per {getPackagingLabel()}
+                  Pieces per {isCigarettes ? 'Pack' : getPackagingLabel()}
                 </label>
-                <input
-                  type="number"
-                  value={unitsPerPackage}
-                  onChange={(e) => setUnitsPerPackage(Math.max(1, parseInt(e.target.value) || 1))}
-                  min="1"
-                  className="w-full px-4 py-2 bg-input rounded-lg text-foreground text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
+                {isCigarettes ? (
+                  <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
+                    <p className="text-lg font-bold text-primary text-center">20 pieces per pack</p>
+                    <p className="text-xs text-muted-foreground text-center mt-1">
+                      Fixed for cigarettes
+                    </p>
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    value={unitsPerPackage}
+                    onChange={(e) => setUnitsPerPackage(Math.max(1, parseInt(e.target.value) || 1))}
+                    min="1"
+                    className="w-full px-4 py-2 bg-input rounded-lg text-foreground text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                )}
               </div>
 
               {/* Package Price */}
               <div>
                 <label className="text-sm text-muted-foreground block mb-2">
-                  Price per {getPackagingLabel()}
+                  Price per {isCigarettes ? 'Pack' : getPackagingLabel()}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>

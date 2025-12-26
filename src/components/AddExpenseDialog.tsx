@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Receipt, Plus, Loader2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { X, Receipt, Plus, Loader2, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Product } from "@/types/product";
 import { expensesApi } from "@/services/mysqlApi";
@@ -37,6 +38,15 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
     quantityRef.current?.focus();
   }, []);
 
+  const isTableMissingError = (error: string | undefined): boolean => {
+    if (!error) return false;
+    const lowerError = error.toLowerCase();
+    return lowerError.includes("table") && 
+           (lowerError.includes("doesn't exist") || 
+            lowerError.includes("does not exist") ||
+            lowerError.includes("not found"));
+  };
+
   const totalCost = (parseFloat(quantity) || 0) * (parseFloat(unitCost) || 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,7 +75,17 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
       onSuccess?.();
       onClose();
     } else {
-      toast({ title: "Error", description: result.error || "Failed to record expense", variant: "destructive" });
+      const errorMsg = result.error || "Failed to record expense";
+      if (isTableMissingError(errorMsg)) {
+        toast({ 
+          title: "Database Table Missing", 
+          description: "The expenses table doesn't exist. Please create it in Database Setup.",
+          variant: "destructive",
+          duration: 6000,
+        });
+      } else {
+        toast({ title: "Error", description: errorMsg, variant: "destructive" });
+      }
     }
     setIsSaving(false);
   };
@@ -236,6 +256,16 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
                 </>
               )}
             </Button>
+          </div>
+
+          {/* Help Text */}
+          <div className="text-xs text-center text-muted-foreground pt-2 border-t border-border">
+            <p>If you see a table error, go to</p>
+            <Link to="/database" className="text-primary hover:underline inline-flex items-center gap-1">
+              <Database className="w-3 h-3" />
+              Database Setup
+            </Link>
+            <span> to create the expenses table</span>
           </div>
         </form>
       </div>

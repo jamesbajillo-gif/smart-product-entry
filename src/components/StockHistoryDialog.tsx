@@ -123,10 +123,10 @@ export function StockHistoryDialog({ product, onClose }: StockHistoryDialogProps
                     {/* Cost info */}
                     {adjustment.unit_cost && (
                       <div className="text-sm text-muted-foreground">
-                        ₱{adjustment.unit_cost.toFixed(2)}/unit
+                        ₱{Number(adjustment.unit_cost).toFixed(2)}/unit
                         {adjustment.total_cost && (
                           <span className="ml-2 text-primary font-medium">
-                            (₱{adjustment.total_cost.toFixed(2)} total)
+                            (₱{Number(adjustment.total_cost).toFixed(2)} total)
                           </span>
                         )}
                       </div>

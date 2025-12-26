@@ -3,6 +3,18 @@ import { Link } from "react-router-dom";
 import { salesApi, SaleRecord } from "@/services/mysqlApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, 
   Receipt, 
@@ -13,7 +25,8 @@ import {
   Search,
   X,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from "lucide-react";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 
@@ -38,6 +51,12 @@ export default function SalesHistory() {
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [saleToDelete, setSaleToDelete] = useState<SaleRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { toast } = useToast();
   
   // Filter states
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -145,6 +164,108 @@ export default function SalesHistory() {
     { value: "month", label: "This Month" },
     { value: "all", label: "All Time" },
   ];
+
+  // Handle checkbox selection
+  const toggleSelection = (saleId: number | undefined) => {
+    if (!saleId) return;
+    setSelectedIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(saleId)) {
+        newSet.delete(saleId);
+      } else {
+        newSet.add(saleId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedSales.filter(s => s.id).length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedSales.filter(s => s.id).map(s => s.id!)));
+    }
+  };
+
+  // Handle individual delete
+  const handleDeleteClick = (e: React.MouseEvent, sale: SaleRecord) => {
+    e.stopPropagation();
+    setSaleToDelete(sale);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!saleToDelete?.id) return;
+    
+    setIsDeleting(true);
+    const result = await salesApi.delete(saleToDelete.id);
+    
+    if (result.success) {
+      toast({
+        title: "Sale deleted",
+        description: "The sale has been successfully deleted.",
+      });
+      setSales((prev) => prev.filter((s) => s.id !== saleToDelete.id));
+      if (selectedSale?.id === saleToDelete.id) {
+        setSelectedSale(null);
+      }
+      setSelectedIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(saleToDelete.id!);
+        return newSet;
+      });
+    } else {
+      toast({
+        title: "Delete failed",
+        description: result.error || "Failed to delete the sale.",
+        variant: "destructive",
+      });
+    }
+    
+    setIsDeleting(false);
+    setDeleteDialogOpen(false);
+    setSaleToDelete(null);
+  };
+
+  // Handle bulk delete
+  const handleBulkDeleteClick = () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleteDialogOpen(true);
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedIds.size === 0) return;
+    
+    setIsDeleting(true);
+    const ids = Array.from(selectedIds);
+    const result = await salesApi.deleteMany(ids);
+    
+    if (result.success) {
+      toast({
+        title: "Sales deleted",
+        description: `Successfully deleted ${result.successCount} sale(s).`,
+      });
+      setSales((prev) => prev.filter((s) => !s.id || !selectedIds.has(s.id)));
+      if (selectedSale && selectedIds.has(selectedSale.id!)) {
+        setSelectedSale(null);
+      }
+      setSelectedIds(new Set());
+    } else {
+      toast({
+        title: "Delete failed",
+        description: result.message || "Failed to delete some sales.",
+        variant: "destructive",
+      });
+      // Remove successfully deleted items
+      if (result.successCount && result.successCount > 0) {
+        setSales((prev) => prev.filter((s) => !s.id || !selectedIds.has(s.id)));
+        setSelectedIds(new Set());
+      }
+    }
+    
+    setIsDeleting(false);
+    setBulkDeleteDialogOpen(false);
+  };
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -282,43 +403,99 @@ export default function SalesHistory() {
               </div>
             ) : (
               <>
+                {/* Select All and Bulk Actions Bar */}
+                <div className="mb-4 p-3 glass-panel rounded-lg flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={toggleSelectAll}
+                      disabled={paginatedSales.filter(s => s.id).length === 0}
+                      className="gap-2"
+                    >
+                      {selectedIds.size === paginatedSales.filter(s => s.id).length && paginatedSales.filter(s => s.id).length > 0
+                        ? "Deselect All"
+                        : "Select All"}
+                    </Button>
+                    {selectedIds.size > 0 && (
+                      <span className="text-sm text-foreground">
+                        {selectedIds.size} sale{selectedIds.size !== 1 ? "s" : ""} selected
+                      </span>
+                    )}
+                  </div>
+                  {selectedIds.size > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleBulkDeleteClick}
+                      disabled={isDeleting}
+                      className="gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete Selected
+                    </Button>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   {paginatedSales.map((sale) => {
                     const items = parseItems(sale.items);
                     const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+                    const isSelected = sale.id ? selectedIds.has(sale.id) : false;
 
                     return (
-                      <button
+                      <div
                         key={sale.id}
-                        onClick={() => setSelectedSale(sale)}
-                        className={`w-full text-left p-4 rounded-lg transition-all ${
+                        className={`w-full p-4 rounded-lg transition-all ${
                           selectedSale?.id === sale.id
                             ? "bg-primary/10 border border-primary/30"
                             : "glass-panel hover:bg-secondary/50"
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            {sale.payment_method === "cash" ? (
-                              <Banknote className="w-4 h-4 text-success" />
-                            ) : (
-                              <Smartphone className="w-4 h-4 text-info" />
-                            )}
-                            <div>
-                              <p className="font-medium text-foreground">
-                                {itemCount} item{itemCount !== 1 ? "s" : ""}
-                              </p>
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                {formatDate(sale.created_at)}
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSelection(sale.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-1"
+                          />
+                          <button
+                            onClick={() => setSelectedSale(sale)}
+                            className="flex-1 text-left"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                {sale.payment_method === "cash" ? (
+                                  <Banknote className="w-4 h-4 text-success" />
+                                ) : (
+                                  <Smartphone className="w-4 h-4 text-info" />
+                                )}
+                                <div>
+                                  <p className="font-medium text-foreground">
+                                    {itemCount} item{itemCount !== 1 ? "s" : ""}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    {formatDate(sale.created_at)}
+                                  </p>
+                                </div>
+                              </div>
+                              <p className="font-mono font-bold text-primary">
+                                ₱{Number(sale.total).toFixed(2)}
                               </p>
                             </div>
-                          </div>
-                          <p className="font-mono font-bold text-primary">
-                            ₱{Number(sale.total).toFixed(2)}
-                          </p>
+                          </button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => handleDeleteClick(e, sale)}
+                            disabled={isDeleting}
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -420,6 +597,59 @@ export default function SalesHistory() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Sale</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this sale? This action cannot be undone.
+              {saleToDelete && (
+                <div className="mt-2 p-2 bg-muted rounded text-sm">
+                  <p>Total: ₱{Number(saleToDelete.total).toFixed(2)}</p>
+                  <p className="text-muted-foreground">
+                    {formatDate(saleToDelete.created_at)}
+                  </p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Sales</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedIds.size} sale{selectedIds.size !== 1 ? "s" : ""}? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : `Delete ${selectedIds.size} Sale${selectedIds.size !== 1 ? "s" : ""}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

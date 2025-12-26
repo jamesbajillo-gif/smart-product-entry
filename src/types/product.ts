@@ -5,20 +5,29 @@ export const PRODUCT_CATEGORIES = [
   "Desserts",
   "Groceries",
   "Household",
+  "Cigarettes",
   "Other",
 ] as const;
 
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 
+export interface ProductVariation {
+  id: string;
+  name: string;
+  price: number;
+  stock_quantity?: number;
+}
+
 export interface Product {
   id: string;
   name: string;
   price: number;
-  category?: ProductCategory;
+  category?: ProductCategory | string; // Allow custom categories
   image_url?: string;
   stock_quantity?: number;
   low_stock_threshold?: number;
   skip_stock_tracking?: boolean;
+  variations?: ProductVariation[]; // Price variations stored as JSON
 }
 
 export interface OrderItem {

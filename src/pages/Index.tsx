@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Product, OrderItem, ProductCategory } from "@/types/product";
 import { OrderSidebar } from "@/components/OrderSidebar";
@@ -7,11 +7,16 @@ import { QuantityDialog } from "@/components/QuantityDialog";
 import { AddProductDialog } from "@/components/AddProductDialog";
 import { PaymentDialog, PaymentDetails } from "@/components/PaymentDialog";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
+import { GCashTransactionDialog, GCashTransactionDetails } from "@/components/GCashTransactionDialog";
+import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
+import { GCashTransactionsDialog } from "@/components/GCashTransactionsDialog";
+import { useGCashFunds } from "@/hooks/useGCashFunds";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Terminal, Wifi, WifiOff, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu } from "lucide-react";
+import { salesApi, SaleRecord } from "@/services/mysqlApi";
+import { Terminal, Wifi, WifiOff, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3 } from "lucide-react";
 
 const Index = () => {
   const {
@@ -34,9 +39,179 @@ const Index = () => {
   const [receiptItems, setReceiptItems] = useState<OrderItem[] | null>(null);
   const [receiptPayment, setReceiptPayment] = useState<PaymentDetails | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
+  const [showGcashDialog, setShowGcashDialog] = useState(false);
+  const [showAddFundsDialog, setShowAddFundsDialog] = useState(false);
+  const [showGCashTransactionsDialog, setShowGCashTransactionsDialog] = useState(false);
+  const [gcashProduct, setGcashProduct] = useState<Product | null>(null);
+  const [sales, setSales] = useState<SaleRecord[]>([]);
+  const [isLoadingSales, setIsLoadingSales] = useState(false);
   const { toast } = useToast();
+  const { funds: gcashFunds, addFunds, processGCashIn, processGCashOut } = useGCashFunds();
 
   const itemCount = orderItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  // Load sales data for most sold products
+  const loadSales = useCallback(async () => {
+    if (!isOnline) return;
+    setIsLoadingSales(true);
+    const result = await salesApi.getAll({ limit: 500 });
+    if (result.success && result.data) {
+      setSales(result.data);
+    }
+    setIsLoadingSales(false);
+  }, [isOnline]);
+
+  useEffect(() => {
+    loadSales();
+  }, [loadSales]);
+
+  // Parse sale items
+  const parseSaleItems = (itemsJson: string) => {
+    try {
+      return JSON.parse(itemsJson) as Array<{ productId: string; name: string; quantity: number; price: number }>;
+    } catch {
+      return [];
+    }
+  };
+
+  // Calculate GCASH-CNV: Add service fees from GCASH-IN (paid in cash), deduct from GCASH-OUT (paid in GCash)
+  const totalGCashServiceFees = useMemo(() => {
+    let calculatedTotal = 0;
+    let gcashInCount = 0;
+    let gcashOutCount = 0;
+    let gcashInWithServiceCharge = 0;
+    let gcashOutWithServiceCharge = 0;
+    
+    const result = sales.reduce((total, sale) => {
+      try {
+        const items = parseSaleItems(sale.items);
+        
+        // Check if this sale has a GCASH-IN or GCASH-OUT transaction first
+        const gcashInItem = items.find(item => item.name === "GCASH-IN");
+        const gcashOutItem = items.find(item => item.name === "GCASH-OUT");
+        
+        // Only process if it's a GCASH transaction
+        if (!gcashInItem && !gcashOutItem) return total;
+        
+        // Find the service charge item
+        const serviceChargeItem = items.find(item => item.name === "Service Charge");
+        
+        if (gcashInItem) {
+          gcashInCount++;
+          // GCASH-IN: Customer pays cash for transaction amount + service charge (both are cash received)
+          const transactionAmount = gcashInItem.price * gcashInItem.quantity;
+          let amountToAdd = transactionAmount;
+          
+          if (serviceChargeItem) {
+            gcashInWithServiceCharge++;
+            const serviceChargeAmount = serviceChargeItem.price * serviceChargeItem.quantity;
+            // Add both transaction amount and service charge (both paid in cash)
+            amountToAdd += serviceChargeAmount;
+          }
+          
+          return total + amountToAdd;
+        }
+        
+        if (gcashOutItem) {
+          gcashOutCount++;
+          // GCASH-OUT: Customer sends GCash, we give cash (deduct transaction amount)
+          const transactionAmount = gcashOutItem.price * gcashOutItem.quantity;
+          let amountToDeduct = transactionAmount;
+          
+          if (serviceChargeItem) {
+            gcashOutWithServiceCharge++;
+            const serviceChargeAmount = serviceChargeItem.price * serviceChargeItem.quantity;
+            // Add service charge (revenue/profit) but deduct transaction amount (cash given)
+            amountToDeduct -= serviceChargeAmount; // Net: deduct (transaction - service charge)
+          }
+          
+          return total - amountToDeduct;
+        }
+      } catch (error) {
+        // Log error for debugging
+        console.error("Error calculating GCASH-CNV:", error, sale);
+      }
+      return total;
+    }, 0);
+    
+    // Debug logging (remove in production if needed)
+    if (gcashInCount > 0 || gcashOutCount > 0) {
+      console.log("GCASH-CNV Calculation:", {
+        total: result,
+        gcashInCount,
+        gcashOutCount,
+        gcashInWithServiceCharge,
+        gcashOutWithServiceCharge,
+      });
+    }
+    
+    return result;
+  }, [sales]);
+
+  // Ensure GCASH product exists
+  useEffect(() => {
+    const ensureGcashProduct = async () => {
+      if (!isOnline || isLoading) return;
+      
+      const gcash = products.find(p => p.name.toUpperCase() === "GCASH" || p.name.toUpperCase() === "GCASH SERVICE");
+      
+      if (!gcash) {
+        await addProduct({
+          name: "GCASH",
+          price: 0,
+          category: "Other",
+          skip_stock_tracking: true,
+        });
+      }
+    };
+    
+    ensureGcashProduct();
+  }, [isOnline, isLoading, products, addProduct]);
+
+  // Calculate most sold products
+  const mostSoldProducts = useMemo(() => {
+    const productCounts: Record<string, { product: Product | null; count: number }> = {};
+    
+    // Initialize with GCASH (always first)
+    const gcash = products.find(p => p.name.toUpperCase() === "GCASH" || p.name.toUpperCase() === "GCASH SERVICE");
+    
+    if (gcash) {
+      productCounts[gcash.id] = { product: gcash, count: 999999 }; // High priority
+    }
+
+    // Count sales for each product
+    sales.forEach((sale) => {
+      const items = parseSaleItems(sale.items);
+      items.forEach((item) => {
+        if (!productCounts[item.productId]) {
+          const product = products.find(p => p.id === item.productId);
+          if (product) {
+            productCounts[item.productId] = { product, count: 0 };
+          }
+        }
+        if (productCounts[item.productId]) {
+          productCounts[item.productId].count += item.quantity;
+        }
+      });
+    });
+
+    // Sort by count and return top products (excluding GCASH from count-based sorting)
+    const sorted = Object.values(productCounts)
+      .filter(item => item.product !== null)
+      .sort((a, b) => {
+        // GCASH always first
+        const aIsGcash = a.product?.name.toUpperCase() === "GCASH" || a.product?.name.toUpperCase() === "GCASH SERVICE";
+        const bIsGcash = b.product?.name.toUpperCase() === "GCASH" || b.product?.name.toUpperCase() === "GCASH SERVICE";
+        if (aIsGcash) return -1;
+        if (bIsGcash) return 1;
+        return b.count - a.count;
+      })
+      .slice(0, 12) // Show top 12 products
+      .map(item => item.product!)
+      .filter(Boolean);
+
+    return sorted;
+  }, [sales, products]);
 
   // Add product to cart (with or without qty dialog)
   const addToCart = useCallback((product: Product, quantity: number) => {
@@ -57,6 +232,16 @@ const Index = () => {
   }, [setOrderItems]);
 
   const handleProductSelect = useCallback((product: Product) => {
+    // Check if it's GCASH product
+    const isGcash = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
+    
+    if (isGcash) {
+      setGcashProduct(product);
+      setShowGcashDialog(true);
+      setSearchQuery("");
+      return;
+    }
+    
     // Skip stock warnings for "always available" products
     if (!product.skip_stock_tracking) {
       const stock = product.stock_quantity ?? 0;
@@ -101,15 +286,19 @@ const Index = () => {
   );
 
   const handleNewProductConfirm = useCallback(
-    async (name: string, price: number, category?: ProductCategory, stockQuantity?: number) => {
-      // Build product data - only include stock fields if provided
+    async (name: string, price: number | undefined, category?: string, stockQuantity?: number) => {
+      // Build product data - price defaults to 0 if not provided
       const productData: {
         name: string;
         price: number;
-        category?: ProductCategory;
+        category?: string;
         stock_quantity?: number;
         low_stock_threshold?: number;
-      } = { name, price, category };
+      } = { 
+        name, 
+        price: price ?? 0, // Default to 0 if price is not provided
+        category 
+      };
       
       // Only add stock fields if user explicitly entered a value
       if (stockQuantity !== undefined && stockQuantity > 0) {
@@ -117,13 +306,15 @@ const Index = () => {
         productData.low_stock_threshold = 5;
       }
       
-      const result = await addProduct(productData);
+      const result = await addProduct(productData as Omit<Product, "id">);
       setNewProductName(null);
       if (result.success && result.product) {
         setSelectedProduct(result.product);
         toast({
           title: "Product added",
-          description: `${name} - ₱${price.toFixed(2)}`,
+          description: price !== undefined 
+            ? `${name} - ₱${price.toFixed(2)}`
+            : `${name} (price can be set later)`,
         });
       } else {
         toast({
@@ -173,14 +364,26 @@ const Index = () => {
   }, [orderItems, toast]);
 
   const handlePaymentConfirm = useCallback(async (details: PaymentDetails) => {
-    // Record sale to database
-    await recordSale(orderItems, details);
-
+    // Store items and payment details before clearing
+    const itemsToReceipt = [...orderItems];
+    const paymentToReceipt = details;
+    
+    // Close payment dialog immediately for better UX
     setShowPayment(false);
-    setReceiptItems([...orderItems]);
-    setReceiptPayment(details);
+    setReceiptItems(itemsToReceipt);
+    setReceiptPayment(paymentToReceipt);
     setOrderItems([]);
-  }, [orderItems, recordSale, setOrderItems]);
+    
+    // Record sale to database in the background (non-blocking)
+    recordSale(itemsToReceipt, paymentToReceipt).catch((error) => {
+      console.error("Failed to record sale:", error);
+      toast({
+        title: "Sale Recorded Locally",
+        description: "Sale will be synced when connection is restored",
+        variant: "default",
+      });
+    });
+  }, [orderItems, recordSale, setOrderItems, toast]);
 
   const handlePaymentCancel = useCallback(() => {
     setShowPayment(false);
@@ -190,6 +393,101 @@ const Index = () => {
     setReceiptItems(null);
     setReceiptPayment(null);
   }, []);
+
+  const handleGcashTransaction = useCallback(async (details: GCashTransactionDetails) => {
+    if (!gcashProduct) return;
+    
+    // Process the GCash fund transaction (use base amount, not including service charge)
+    let fundResult;
+    if (details.type === "gcash-in") {
+      // GCASH-IN: Customer pays cash, we send GCash (deducts from our GCASH funds)
+      // Note: Service charge is our profit, doesn't affect GCASH balance
+      fundResult = processGCashIn(details.amount, details.gcashNumber, details.notes);
+      if (!fundResult.success) {
+        toast({
+          title: "Transaction Failed",
+          description: fundResult.error || "Insufficient GCASH funds",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      // GCASH-OUT: Customer sends GCash, we give cash (adds to our GCASH funds)
+      // Note: Service charge is our profit, doesn't affect GCASH balance
+      fundResult = processGCashOut(details.amount, details.notes);
+      if (!fundResult.success) {
+        toast({
+          title: "Transaction Failed",
+          description: fundResult.error || "Failed to process transaction",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    
+    // Create a product name with transaction type for the sale record
+    const transactionName = details.type === "gcash-in" ? "GCASH-IN" : "GCASH-OUT";
+    
+    // Create order items: base transaction + service charge (if applicable)
+    const items: OrderItem[] = [
+      {
+        product: {
+          ...gcashProduct,
+          name: transactionName,
+          price: details.amount, // Base transaction amount
+        },
+        quantity: 1,
+      },
+    ];
+    
+    // Add service charge as a separate item if applicable
+    if (details.serviceCharge > 0) {
+      items.push({
+        product: {
+          ...gcashProduct,
+          name: "Service Charge",
+          price: details.serviceCharge,
+        },
+        quantity: 1,
+      });
+    }
+    
+    // Determine payment method based on transaction type
+    // GCASH-IN: Customer pays cash (totalAmount includes service charge)
+    // GCASH-OUT: Customer sends GCash (totalAmount includes service charge)
+    const paymentDetails: PaymentDetails = {
+      method: details.type === "gcash-in" ? "cash" : "gcash",
+      amountTendered: details.totalAmount, // Customer pays the total (amount + service charge)
+      change: 0,
+    };
+    
+    // Record the sale immediately (GCash transactions are instant)
+    await recordSale(items, paymentDetails);
+    
+    // Refresh sales data to update GCASH-CNV badge
+    await loadSales();
+    
+    setShowGcashDialog(false);
+    setGcashProduct(null);
+    setSearchQuery("");
+    
+    const serviceChargeText = details.serviceCharge > 0 ? ` (Service: ₱${details.serviceCharge.toFixed(2)})` : "";
+    toast({
+      title: "GCash Transaction Recorded",
+      description: `${transactionName}: ₱${details.amount.toFixed(2)}${serviceChargeText} | Total: ₱${details.totalAmount.toFixed(2)} | Balance: ₱${fundResult.balance.toFixed(2)}`,
+    });
+  }, [gcashProduct, recordSale, processGCashIn, processGCashOut, toast, loadSales]);
+
+  const handleAddFunds = useCallback((amount: number, notes?: string) => {
+    const result = addFunds(amount, notes);
+    if (result.success) {
+      setShowAddFundsDialog(false);
+      toast({
+        title: "Funds Added",
+        description: `₱${amount.toFixed(2)} added to GCASH | New balance: ₱${result.balance.toFixed(2)}`,
+      });
+    }
+  }, [addFunds, toast]);
 
   // Global Enter key to trigger checkout when nothing is focused
   useEffect(() => {
@@ -243,6 +541,28 @@ const Index = () => {
                 {isOnline ? 'Online' : 'Offline'}
               </div>
               
+              {/* GCASH Balance */}
+              <button
+                onClick={() => setShowAddFundsDialog(true)}
+                className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+                title="Click to add funds"
+              >
+                <Smartphone className="w-3 h-3" />
+                GCASH: ₱{gcashFunds.toFixed(2)}
+              </button>
+              
+              {/* GCASH-CNV Badge (Total service fees from GCASH-IN and GCASH-OUT) */}
+              {totalGCashServiceFees > 0 && (
+                <button
+                  onClick={() => setShowGCashTransactionsDialog(true)}
+                  className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-info/20 text-info border border-info/30 hover:bg-info/30 transition-colors cursor-pointer"
+                  title="Click to view all GCash transactions"
+                >
+                  <TrendingUp className="w-3 h-3" />
+                  GCASH-CNV: ₱{totalGCashServiceFees.toFixed(2)}
+                </button>
+              )}
+              
               {/* Pending sync button */}
               {pendingSalesCount > 0 && (
                 <button
@@ -278,6 +598,12 @@ const Index = () => {
                     <span className="hidden lg:inline">Sales</span>
                   </Button>
                 </Link>
+                <Link to="/analytics" className="hidden sm:block">
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <BarChart3 className="w-4 h-4" />
+                    <span className="hidden lg:inline">Analytics</span>
+                  </Button>
+                </Link>
                 
                 {/* Cart button - mobile only */}
                 <button
@@ -299,6 +625,23 @@ const Index = () => {
               <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${isOnline ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
                 {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               </div>
+              <button
+                onClick={() => setShowAddFundsDialog(true)}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-primary/20 text-primary"
+              >
+                <Smartphone className="w-3 h-3" />
+                ₱{gcashFunds.toFixed(2)}
+              </button>
+              {totalGCashServiceFees > 0 && (
+                <button
+                  onClick={() => setShowGCashTransactionsDialog(true)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-info/20 text-info border border-info/30 hover:bg-info/30 transition-colors cursor-pointer"
+                  title="Click to view all GCash transactions"
+                >
+                  <TrendingUp className="w-3 h-3" />
+                  CNV: ₱{totalGCashServiceFees.toFixed(2)}
+                </button>
+              )}
               <Link to="/products">
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
                   <Package className="w-3 h-3 mr-1" />
@@ -311,6 +654,12 @@ const Index = () => {
                   Sales
                 </Button>
               </Link>
+              <Link to="/analytics">
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                  <BarChart3 className="w-3 h-3 mr-1" />
+                  Analytics
+                </Button>
+              </Link>
             </div>
             
             <p className="text-muted-foreground text-sm sm:text-base hidden sm:block">
@@ -319,8 +668,8 @@ const Index = () => {
           </header>
 
           {/* Search Area */}
-          <div className="flex-1 flex items-start justify-center pt-4 sm:pt-8 lg:pt-12">
-            <div className="w-full max-w-2xl">
+          <div className="flex-1 flex flex-col items-center justify-start pt-4 sm:pt-8 lg:pt-12">
+            <div className="w-full max-w-2xl mb-6">
               <ProductSearch
                 products={products}
                 searchQuery={searchQuery}
@@ -330,6 +679,61 @@ const Index = () => {
                 onCheckout={handleCheckout}
               />
             </div>
+
+            {/* Most Sold Products */}
+            {!searchQuery && mostSoldProducts.length > 0 && (
+              <div className="w-full max-w-4xl">
+                <div className="flex items-center gap-2 mb-3 px-2">
+                  <TrendingUp className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="text-sm font-medium text-muted-foreground">Most Sold Products</h3>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 px-2">
+                  {mostSoldProducts.map((product) => (
+                    <button
+                      key={product.id}
+                      onClick={() => handleProductSelect(product)}
+                      className="flex flex-col items-center p-2 bg-secondary/50 hover:bg-secondary rounded-lg transition-colors group"
+                    >
+                      {/* Thumbnail */}
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt={product.name}
+                          className="w-full aspect-square object-cover rounded-lg mb-2 group-hover:opacity-80 transition-opacity"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                        />
+                      ) : null}
+                      <div 
+                        className={`w-full aspect-square bg-secondary rounded-lg mb-2 items-center justify-center ${product.image_url ? 'hidden' : 'flex'}`}
+                      >
+                        <Package className="w-6 h-6 text-muted-foreground/50" />
+                      </div>
+                      
+                      {/* Price below thumbnail - show funds for GCash */}
+                      {(() => {
+                        const isGcash = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
+                        if (isGcash) {
+                          return (
+                            <div className="text-xs font-mono text-info font-semibold">
+                              Funds: ₱{gcashFunds.toFixed(2)}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="text-xs font-mono text-primary font-semibold">
+                            ₱{product.price.toFixed(2)}
+                          </div>
+                        );
+                      })()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Keyboard Hint - desktop only */}
@@ -382,6 +786,35 @@ const Index = () => {
           items={receiptItems}
           paymentDetails={receiptPayment}
           onClose={handleCloseReceipt}
+        />
+      )}
+
+      {/* GCash Transaction Dialog */}
+      {showGcashDialog && gcashProduct && (
+        <GCashTransactionDialog
+          currentBalance={gcashFunds}
+          onConfirm={handleGcashTransaction}
+          onCancel={() => {
+            setShowGcashDialog(false);
+            setGcashProduct(null);
+          }}
+        />
+      )}
+
+      {/* Add GCash Funds Dialog */}
+      {showAddFundsDialog && (
+        <AddGCashFundsDialog
+          currentBalance={gcashFunds}
+          onConfirm={handleAddFunds}
+          onCancel={() => setShowAddFundsDialog(false)}
+        />
+      )}
+
+      {/* GCash Transactions Dialog */}
+      {showGCashTransactionsDialog && (
+        <GCashTransactionsDialog
+          sales={sales}
+          onClose={() => setShowGCashTransactionsDialog(false)}
         />
       )}
     </div>

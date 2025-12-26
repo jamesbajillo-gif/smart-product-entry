@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { StockAdjustmentDialog, RestockData } from "@/components/StockAdjustmentDialog";
 import { StockHistoryDialog } from "@/components/StockHistoryDialog";
 import { AddExpenseDialog } from "@/components/AddExpenseDialog";
+import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
+import { AddProductVariationDialog } from "@/components/AddProductVariationDialog";
+import { HistoryDialog } from "@/components/HistoryDialog";
+import { useGCashFunds } from "@/hooks/useGCashFunds";
 import {
   ArrowLeft,
   Package,
@@ -29,6 +33,7 @@ import {
   Database,
   Truck,
   Receipt,
+  Layers,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { initialProducts } from "@/data/products";
@@ -69,8 +74,12 @@ export default function ProductManagement() {
   const [stockAdjustProduct, setStockAdjustProduct] = useState<Product | null>(null);
   const [stockHistoryProduct, setStockHistoryProduct] = useState<Product | null>(null);
   const [expenseProduct, setExpenseProduct] = useState<Product | null>(null);
+  const [showAddGcashFunds, setShowAddGcashFunds] = useState(false);
+  const [variationProduct, setVariationProduct] = useState<Product | null>(null);
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const { toast } = useToast();
+  const { funds: gcashFunds, addFunds } = useGCashFunds();
 
   const lowStockCount = useMemo(() => {
     // Exclude products with skip_stock_tracking from low stock count
@@ -136,23 +145,24 @@ export default function ProductManagement() {
   };
 
   const handleAdd = async () => {
-    if (!newName.trim() || !newPrice) {
-      toast({ title: "Error", description: "Please fill in all fields" });
+    if (!newName.trim()) {
+      toast({ title: "Error", description: "Please enter a product name" });
       return;
     }
 
     // Build product data - include skip_stock_tracking flag
+    // Price is optional, defaults to 0 if not provided
     const productData: {
       name: string;
       price: number;
-      category: ProductCategory;
+      category: ProductCategory | string;
       image_url?: string;
       stock_quantity?: number;
       low_stock_threshold?: number;
       skip_stock_tracking?: boolean;
     } = {
       name: newName.trim(),
-      price: parseFloat(newPrice),
+      price: newPrice.trim() ? parseFloat(newPrice) : 0,
       category: newCategory,
       image_url: newImageUrl.trim() || undefined,
       skip_stock_tracking: newSkipStockTracking,
@@ -515,7 +525,7 @@ export default function ProductManagement() {
                   type="number"
                   value={newPrice}
                   onChange={(e) => setNewPrice(e.target.value)}
-                  placeholder="0.00"
+                  placeholder="0.00 (optional)"
                   step="0.01"
                   min="0"
                   className="w-full pl-8 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -524,12 +534,15 @@ export default function ProductManagement() {
               <div className="relative">
                 <Image className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
-                  type="url"
+                  type="text"
                   value={newImageUrl}
                   onChange={(e) => setNewImageUrl(e.target.value)}
-                  placeholder="Image URL (optional)"
+                  placeholder="Image URL or base64 data (optional)"
                   className="w-full pl-10 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
+                <p className="text-xs text-muted-foreground mt-1 ml-10">
+                  Supports: https://... or data:image/...;base64,...
+                </p>
               </div>
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -677,10 +690,10 @@ export default function ProductManagement() {
                                       ))}
                                     </select>
                                     <input
-                                      type="url"
+                                      type="text"
                                       value={editImageUrl}
                                       onChange={(e) => setEditImageUrl(e.target.value)}
-                                      placeholder="Image URL"
+                                      placeholder="Image URL or base64 data"
                                       className="px-2 py-1 bg-input rounded text-foreground text-sm flex-1"
                                     />
                                   </div>
@@ -717,9 +730,43 @@ export default function ProductManagement() {
                                   className="px-2 py-1 bg-input rounded text-foreground text-sm w-24"
                                 />
                               ) : (
-                                <span className="text-primary font-mono">
-                                  ₱{product.price.toFixed(2)}
-                                </span>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-primary font-mono">
+                                    ₱{product.price.toFixed(2)}
+                                  </span>
+                                  {/* Show variations if any */}
+                                  {(() => {
+                                    // Ensure variations is an array
+                                    let variations: any[] = [];
+                                    if (product.variations) {
+                                      if (Array.isArray(product.variations)) {
+                                        variations = product.variations;
+                                      } else if (typeof product.variations === 'string') {
+                                        try {
+                                          variations = JSON.parse(product.variations);
+                                        } catch {
+                                          variations = [];
+                                        }
+                                      }
+                                    }
+                                    
+                                    if (variations.length > 0) {
+                                      return (
+                                        <div className="flex flex-col gap-0.5">
+                                          {variations.map((variation, idx) => (
+                                            <span 
+                                              key={variation.id || idx}
+                                              className="text-xs text-muted-foreground font-mono"
+                                            >
+                                              ₱{variation.price.toFixed(2)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
                               )}
                             </td>
                             <td className="p-3">
@@ -761,12 +808,35 @@ export default function ProductManagement() {
                                         ∞ Always
                                       </span>
                                       <button
-                                        onClick={() => setExpenseProduct(product)}
+                                        onClick={() => {
+                                          // Check if product is GCASH
+                                          const isGcash = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
+                                          if (isGcash) {
+                                            setShowAddGcashFunds(true);
+                                          } else {
+                                            setExpenseProduct(product);
+                                          }
+                                        }}
                                         disabled={!isOnline}
                                         className="p-1.5 rounded bg-primary/20 hover:bg-primary/30 text-primary disabled:opacity-50 transition-colors"
-                                        title="Add Expense"
+                                        title={product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE" ? "Add Funds" : "Add Expense"}
                                       >
                                         <Receipt className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setHistoryProduct(product)}
+                                        className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground transition-colors"
+                                        title="View history"
+                                      >
+                                        <History className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setVariationProduct(product)}
+                                        disabled={!isOnline}
+                                        className="p-1.5 rounded bg-info/20 hover:bg-info/30 text-info disabled:opacity-50 transition-colors"
+                                        title="Add price variation"
+                                      >
+                                        <Layers className="w-4 h-4" />
                                       </button>
                                     </>
                                   ) : (
@@ -788,6 +858,14 @@ export default function ProductManagement() {
                                         title="View history"
                                       >
                                         <History className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setVariationProduct(product)}
+                                        disabled={!isOnline}
+                                        className="p-1.5 rounded bg-info/20 hover:bg-info/30 text-info disabled:opacity-50 transition-colors"
+                                        title="Add price variation"
+                                      >
+                                        <Layers className="w-4 h-4" />
                                       </button>
                                     </>
                                   )}
@@ -913,6 +991,74 @@ export default function ProductManagement() {
         <AddExpenseDialog
           product={expenseProduct}
           onClose={() => setExpenseProduct(null)}
+        />
+      )}
+
+      {/* Add GCash Funds Dialog */}
+      {showAddGcashFunds && (
+        <AddGCashFundsDialog
+          currentBalance={gcashFunds}
+          onConfirm={(amount, notes) => {
+            const result = addFunds(amount, notes);
+            if (result.success) {
+              setShowAddGcashFunds(false);
+              toast({
+                title: "Funds Added",
+                description: `₱${amount.toFixed(2)} added to GCASH | New balance: ₱${result.balance.toFixed(2)}`,
+              });
+            }
+          }}
+          onCancel={() => setShowAddGcashFunds(false)}
+        />
+      )}
+
+      {/* Add Product Variation Dialog */}
+      {variationProduct && (
+        <AddProductVariationDialog
+          product={variationProduct}
+          onConfirm={async (price, variationName, stockQuantity) => {
+            // Get existing variations or create empty array
+            const existingVariations = variationProduct.variations || [];
+            
+            // Create new variation
+            const newVariation = {
+              id: Date.now().toString(),
+              name: variationName,
+              price: price,
+              stock_quantity: stockQuantity,
+            };
+            
+            // Add new variation to the list
+            const updatedVariations = [...existingVariations, newVariation];
+            
+            // Update product with new variations (stored as JSON string)
+            const result = await updateProduct(variationProduct.id, {
+              variations: JSON.stringify(updatedVariations),
+            });
+            
+            if (result.success) {
+              setVariationProduct(null);
+              toast({
+                title: "Variation Added",
+                description: `${variationName} - ₱${price.toFixed(2)} variation added successfully`,
+              });
+            } else {
+              toast({
+                title: "Error",
+                description: result.error || "Failed to add variation",
+                variant: "destructive",
+              });
+            }
+          }}
+          onCancel={() => setVariationProduct(null)}
+        />
+      )}
+
+      {/* History Dialog */}
+      {historyProduct && (
+        <HistoryDialog
+          product={historyProduct}
+          onClose={() => setHistoryProduct(null)}
         />
       )}
     </div>

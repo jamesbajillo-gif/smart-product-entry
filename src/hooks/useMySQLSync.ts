@@ -121,17 +121,32 @@ export function useMySQLSync() {
         const productsResult = await productsApi.getAll();
         if (productsResult.success && productsResult.data && productsResult.data.length > 0) {
           setProducts(
-            productsResult.data.map((p) => ({
-              id: String(p.id),
-              name: p.name,
-              price: Number(p.price),
-              category: p.category as Product["category"],
-              image_url: p.image_url || undefined,
-              stock_quantity: p.stock_quantity ?? 0,
-              low_stock_threshold: p.low_stock_threshold ?? 5,
-              // Convert MySQL TINYINT (0/1) to boolean
-              skip_stock_tracking: Boolean(p.skip_stock_tracking),
-            }))
+            productsResult.data.map((p: any) => {
+              // Parse variations from JSON if present
+              let variations;
+              if (p.variations) {
+                try {
+                  variations = typeof p.variations === 'string' 
+                    ? JSON.parse(p.variations) 
+                    : p.variations;
+                } catch {
+                  variations = undefined;
+                }
+              }
+              
+              return {
+                id: String(p.id),
+                name: p.name,
+                price: Number(p.price),
+                category: p.category as Product["category"],
+                image_url: p.image_url || undefined,
+                stock_quantity: p.stock_quantity ?? 0,
+                low_stock_threshold: p.low_stock_threshold ?? 5,
+                // Convert MySQL TINYINT (0/1) to boolean
+                skip_stock_tracking: Boolean(p.skip_stock_tracking),
+                variations,
+              };
+            })
           );
         }
 
@@ -291,15 +306,31 @@ export function useMySQLSync() {
     if (connected) {
       const productsResult = await productsApi.getAll();
       if (productsResult.success && productsResult.data) {
-        const dbProducts = productsResult.data.map((p) => ({
-          id: String(p.id),
-          name: p.name,
-          price: Number(p.price),
-          category: p.category as Product["category"],
-          image_url: p.image_url || undefined,
-          stock_quantity: p.stock_quantity ?? 0,
-          low_stock_threshold: p.low_stock_threshold ?? 5,
-        }));
+        const dbProducts = productsResult.data.map((p: any) => {
+          // Parse variations from JSON if present
+          let variations;
+          if (p.variations) {
+            try {
+              variations = typeof p.variations === 'string' 
+                ? JSON.parse(p.variations) 
+                : p.variations;
+            } catch {
+              variations = undefined;
+            }
+          }
+          
+          return {
+            id: String(p.id),
+            name: p.name,
+            price: Number(p.price),
+            category: p.category as Product["category"],
+            image_url: p.image_url || undefined,
+            stock_quantity: p.stock_quantity ?? 0,
+            low_stock_threshold: p.low_stock_threshold ?? 5,
+            skip_stock_tracking: Boolean(p.skip_stock_tracking),
+            variations,
+          };
+        });
         setProducts(dbProducts);
         return { success: true, count: dbProducts.length };
       }

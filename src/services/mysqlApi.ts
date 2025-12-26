@@ -120,6 +120,7 @@ export const productsApi = {
       stock_quantity?: number;
       low_stock_threshold?: number;
       skip_stock_tracking?: number | boolean;
+      variations?: string; // JSON string
     }>>(
       "GET",
       { table: "products", limit: 1000 }
@@ -135,6 +136,7 @@ export const productsApi = {
     stock_quantity?: number;
     low_stock_threshold?: number;
     skip_stock_tracking?: boolean;
+    variations?: string; // JSON string of variations
   }) => {
     // Convert boolean to 1/0 for MySQL
     const data = {
@@ -156,6 +158,7 @@ export const productsApi = {
     stock_quantity?: number;
     low_stock_threshold?: number;
     skip_stock_tracking?: boolean;
+    variations?: string; // JSON string of variations
   }) => {
     // Convert boolean to 1/0 for MySQL if provided
     const updateData = {
@@ -270,6 +273,33 @@ export const salesApi = {
       id,
     });
     return result;
+  },
+
+  delete: async (id: number) => {
+    const result = await apiRequest("DELETE", {
+      table: "sales",
+      id,
+    });
+    return result;
+  },
+
+  deleteMany: async (ids: number[]) => {
+    // Delete multiple sales by making individual delete requests
+    const results = await Promise.all(
+      ids.map((id) => apiRequest("DELETE", { table: "sales", id }))
+    );
+    
+    const successCount = results.filter((r) => r.success).length;
+    const failedCount = results.length - successCount;
+    
+    return {
+      success: failedCount === 0,
+      successCount,
+      failedCount,
+      message: failedCount === 0 
+        ? `Successfully deleted ${successCount} sale(s)`
+        : `Deleted ${successCount} sale(s), ${failedCount} failed`,
+    };
   },
 };
 
@@ -634,10 +664,11 @@ export const REQUIRED_SCHEMA = {
       { name: "name", type: "VARCHAR(255) NOT NULL" },
       { name: "price", type: "DECIMAL(10,2) NOT NULL" },
       { name: "category", type: "VARCHAR(100)" },
-      { name: "image_url", type: "VARCHAR(500)" },
+      { name: "image_url", type: "TEXT" },
       { name: "stock_quantity", type: "INT DEFAULT 0" },
       { name: "low_stock_threshold", type: "INT DEFAULT 5" },
       { name: "skip_stock_tracking", type: "TINYINT(1) DEFAULT 0" },
+      { name: "variations", type: "JSON DEFAULT NULL" },
       { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
     ],
     createSQL: `CREATE TABLE IF NOT EXISTS products (
@@ -645,10 +676,11 @@ export const REQUIRED_SCHEMA = {
       name VARCHAR(255) NOT NULL,
       price DECIMAL(10,2) NOT NULL,
       category VARCHAR(100),
-      image_url VARCHAR(500),
+      image_url TEXT,
       stock_quantity INT DEFAULT 0,
       low_stock_threshold INT DEFAULT 5,
       skip_stock_tracking TINYINT(1) DEFAULT 0,
+      variations JSON DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
   },

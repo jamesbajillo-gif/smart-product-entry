@@ -155,6 +155,12 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
                   step="0.01"
                   value={amountTendered}
                   onChange={(e) => setAmountTendered(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (selectedMethod === "gcash" || isValidCashAmount)) {
+                      e.preventDefault();
+                      handleConfirm();
+                    }
+                  }}
                   placeholder={total.toFixed(2)}
                   className="w-full pl-10 pr-12 py-4 bg-input rounded-lg text-2xl font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                 />
