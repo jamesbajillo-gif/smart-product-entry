@@ -5,6 +5,7 @@ import {
   productsApi,
   salesApi,
   quantityHistoryApi,
+  stockApi,
   checkApiConnection,
   SaleRecord,
 } from "@/services/mysqlApi";
@@ -125,6 +126,9 @@ export function useMySQLSync() {
               name: p.name,
               price: Number(p.price),
               category: p.category as Product["category"],
+              image_url: p.image_url || undefined,
+              stock_quantity: p.stock_quantity ?? 0,
+              low_stock_threshold: p.low_stock_threshold ?? 5,
             }))
           );
         }
@@ -261,6 +265,24 @@ export function useMySQLSync() {
             for (const update of quantityUpdates) {
               await quantityHistoryApi.upsert(update.productId, update.quantities);
             }
+            
+            // Auto-deduct stock for each product sold
+            for (const item of orderItems) {
+              const product = products.find(p => p.id === item.product.id);
+              if (product && product.stock_quantity !== undefined) {
+                await stockApi.recordSale(item.product.id, item.quantity, product.stock_quantity);
+              }
+            }
+            
+            // Update local product stock
+            setProducts(prev => prev.map(p => {
+              const soldItem = orderItems.find(item => item.product.id === p.id);
+              if (soldItem && p.stock_quantity !== undefined) {
+                return { ...p, stock_quantity: Math.max(0, p.stock_quantity - soldItem.quantity) };
+              }
+              return p;
+            }));
+            
             return;
           }
         } catch (error) {
