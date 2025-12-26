@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Banknote, Smartphone, ArrowLeft } from "lucide-react";
+import { X, Banknote, Smartphone, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export type PaymentMethod = "cash" | "gcash";
@@ -17,13 +17,13 @@ interface PaymentDialogProps {
 }
 
 export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps) {
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>("cash");
   const [amountTendered, setAmountTendered] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const numericAmount = parseFloat(amountTendered) || 0;
   const change = numericAmount - total;
-  const isValidAmount = numericAmount >= total;
+  const isValidCashAmount = numericAmount >= total;
 
   useEffect(() => {
     if (selectedMethod === "cash") {
@@ -31,8 +31,10 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
     }
   }, [selectedMethod]);
 
-  const handleCashConfirm = () => {
-    if (isValidAmount) {
+  const handleConfirm = () => {
+    if (selectedMethod === "gcash") {
+      onConfirm({ method: "gcash" });
+    } else if (isValidCashAmount) {
       onConfirm({
         method: "cash",
         amountTendered: numericAmount,
@@ -41,44 +43,26 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
     }
   };
 
-  const handleGcashConfirm = () => {
-    onConfirm({ method: "gcash" });
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && isValidAmount) {
-      handleCashConfirm();
-    } else if (e.key === "Escape") {
-      if (selectedMethod) {
-        setSelectedMethod(null);
-        setAmountTendered("");
-      } else {
-        onCancel();
+    if (e.key === "Enter") {
+      if (selectedMethod === "gcash" || isValidCashAmount) {
+        handleConfirm();
       }
+    } else if (e.key === "Escape") {
+      onCancel();
     }
   };
 
   // Quick amount buttons
   const quickAmounts = [20, 50, 100, 200, 500, 1000].filter((amt) => amt >= total);
 
+  const canConfirm = selectedMethod === "gcash" || isValidCashAmount;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
       <div className="glass-panel rounded-xl p-6 w-full max-w-md mx-4 animate-scale-in" onKeyDown={handleKeyDown}>
         <div className="flex items-center justify-between mb-6">
-          {selectedMethod === "cash" ? (
-            <button
-              onClick={() => {
-                setSelectedMethod(null);
-                setAmountTendered("");
-              }}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              <span className="font-semibold text-foreground">Cash Payment</span>
-            </button>
-          ) : (
-            <h2 className="text-xl font-semibold text-foreground">Select Payment</h2>
-          )}
+          <h2 className="text-xl font-semibold text-foreground">Payment</h2>
           <button
             onClick={onCancel}
             className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
@@ -87,6 +71,7 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
           </button>
         </div>
 
+        {/* Total Amount */}
         <div className="mb-6 p-4 bg-secondary/50 rounded-lg text-center">
           <p className="text-sm text-muted-foreground">Total Amount</p>
           <p className="text-3xl font-bold font-mono text-primary mt-1">
@@ -94,44 +79,52 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
           </p>
         </div>
 
-        {!selectedMethod ? (
-          <>
-            <div className="space-y-3">
-              <Button
-                variant="outline"
-                className="w-full h-16 justify-start gap-4 text-lg hover:border-primary hover:bg-primary/5"
-                onClick={() => setSelectedMethod("cash")}
-              >
-                <div className="p-2 bg-success/20 rounded-lg">
-                  <Banknote className="w-6 h-6 text-success" />
-                </div>
-                <div className="text-left">
-                  <p className="font-semibold text-foreground">Cash</p>
-                  <p className="text-sm text-muted-foreground">Pay with cash</p>
-                </div>
-              </Button>
+        {/* Payment Method Selection */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-muted-foreground mb-2">
+            Payment Method
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setSelectedMethod("cash")}
+              className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
+                selectedMethod === "cash"
+                  ? "border-primary bg-primary/10"
+                  : "border-border hover:border-primary/50 hover:bg-secondary/50"
+              }`}
+            >
+              <div className={`p-2 rounded-lg ${selectedMethod === "cash" ? "bg-success/20" : "bg-secondary"}`}>
+                <Banknote className={`w-6 h-6 ${selectedMethod === "cash" ? "text-success" : "text-muted-foreground"}`} />
+              </div>
+              <span className={`font-semibold ${selectedMethod === "cash" ? "text-foreground" : "text-muted-foreground"}`}>
+                Cash
+              </span>
+              {selectedMethod === "cash" && (
+                <Check className="w-4 h-4 text-primary absolute top-2 right-2" />
+              )}
+            </button>
 
-              <Button
-                variant="outline"
-                className="w-full h-16 justify-start gap-4 text-lg hover:border-primary hover:bg-primary/5"
-                onClick={handleGcashConfirm}
-              >
-                <div className="p-2 bg-info/20 rounded-lg">
-                  <Smartphone className="w-6 h-6 text-info" />
-                </div>
-                <div className="text-left">
-                  <p className="font-semibold text-foreground">GCash</p>
-                  <p className="text-sm text-muted-foreground">Pay via GCash</p>
-                </div>
-              </Button>
-            </div>
+            <button
+              onClick={() => setSelectedMethod("gcash")}
+              className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
+                selectedMethod === "gcash"
+                  ? "border-primary bg-primary/10"
+                  : "border-border hover:border-primary/50 hover:bg-secondary/50"
+              }`}
+            >
+              <div className={`p-2 rounded-lg ${selectedMethod === "gcash" ? "bg-info/20" : "bg-secondary"}`}>
+                <Smartphone className={`w-6 h-6 ${selectedMethod === "gcash" ? "text-info" : "text-muted-foreground"}`} />
+              </div>
+              <span className={`font-semibold ${selectedMethod === "gcash" ? "text-foreground" : "text-muted-foreground"}`}>
+                GCash
+              </span>
+            </button>
+          </div>
+        </div>
 
-            <Button variant="ghost" className="w-full mt-4" onClick={onCancel}>
-              Cancel
-            </Button>
-          </>
-        ) : (
-          <div className="space-y-4">
+        {/* Cash Payment Details */}
+        {selectedMethod === "cash" && (
+          <div className="space-y-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Amount Tendered
@@ -172,7 +165,7 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
 
             <div
               className={`p-4 rounded-lg border ${
-                isValidAmount
+                isValidCashAmount
                   ? "bg-success/10 border-success/30"
                   : "bg-destructive/10 border-destructive/30"
               }`}
@@ -181,35 +174,38 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
                 <span className="text-muted-foreground">Change</span>
                 <span
                   className={`text-2xl font-bold font-mono ${
-                    isValidAmount ? "text-success" : "text-destructive"
+                    isValidCashAmount ? "text-success" : "text-destructive"
                   }`}
                 >
-                  {isValidAmount ? `₱${change.toFixed(2)}` : "Insufficient"}
+                  {isValidCashAmount ? `₱${change.toFixed(2)}` : "Insufficient"}
                 </span>
               </div>
             </div>
-
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  setSelectedMethod(null);
-                  setAmountTendered("");
-                }}
-              >
-                Back
-              </Button>
-              <Button
-                className="flex-1"
-                disabled={!isValidAmount}
-                onClick={handleCashConfirm}
-              >
-                Confirm
-              </Button>
-            </div>
           </div>
         )}
+
+        {/* GCash Info */}
+        {selectedMethod === "gcash" && (
+          <div className="mb-6 p-4 bg-info/10 border border-info/30 rounded-lg">
+            <p className="text-sm text-muted-foreground text-center">
+              Customer will pay <span className="font-semibold text-foreground">₱{total.toFixed(2)}</span> via GCash
+            </p>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            className="flex-1"
+            disabled={!canConfirm}
+            onClick={handleConfirm}
+          >
+            Confirm Payment
+          </Button>
+        </div>
       </div>
     </div>
   );
