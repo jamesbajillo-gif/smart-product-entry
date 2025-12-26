@@ -108,14 +108,29 @@ async function apiRequest<T>(
 // Products API
 export const productsApi = {
   getAll: async () => {
-    const result = await apiRequest<Array<{ id: string; name: string; price: number; category?: string }>>(
+    const result = await apiRequest<Array<{
+      id: string;
+      name: string;
+      price: number;
+      category?: string;
+      image_url?: string;
+      stock_quantity?: number;
+      low_stock_threshold?: number;
+    }>>(
       "GET",
       { table: "products", limit: 1000 }
     );
     return result;
   },
 
-  create: async (product: { name: string; price: number; category?: string }) => {
+  create: async (product: {
+    name: string;
+    price: number;
+    category?: string;
+    image_url?: string;
+    stock_quantity?: number;
+    low_stock_threshold?: number;
+  }) => {
     const result = await apiRequest<{ id: number }>("POST", {
       table: "products",
       data: product,
@@ -123,7 +138,14 @@ export const productsApi = {
     return result;
   },
 
-  update: async (id: string, data: { name?: string; price?: number; category?: string }) => {
+  update: async (id: string, data: {
+    name?: string;
+    price?: number;
+    category?: string;
+    image_url?: string;
+    stock_quantity?: number;
+    low_stock_threshold?: number;
+  }) => {
     const result = await apiRequest("PUT", {
       table: "products",
       id,
@@ -137,6 +159,32 @@ export const productsApi = {
       table: "products",
       id,
     });
+    return result;
+  },
+
+  getLowStock: async () => {
+    // Get products where stock_quantity <= low_stock_threshold
+    const result = await apiRequest<Array<{
+      id: string;
+      name: string;
+      price: number;
+      category?: string;
+      image_url?: string;
+      stock_quantity?: number;
+      low_stock_threshold?: number;
+    }>>(
+      "GET",
+      { table: "products", limit: 1000 }
+    );
+    
+    if (result.success && result.data) {
+      // Filter low stock products client-side
+      result.data = result.data.filter(p => {
+        const stock = p.stock_quantity ?? 0;
+        const threshold = p.low_stock_threshold ?? 5;
+        return stock <= threshold;
+      });
+    }
     return result;
   },
 };
@@ -337,6 +385,114 @@ export const databaseApi = {
   },
 };
 
+// Stock Adjustments API
+export interface StockAdjustmentRecord {
+  id?: number;
+  product_id: string;
+  adjustment_type: 'add' | 'remove' | 'set' | 'sale';
+  quantity_change: number;
+  previous_quantity: number;
+  new_quantity: number;
+  reason?: string;
+  created_at?: string;
+}
+
+export const stockApi = {
+  // Adjust stock (add, remove, set)
+  adjustStock: async (
+    productId: string,
+    type: 'add' | 'remove' | 'set',
+    quantity: number,
+    currentStock: number,
+    reason?: string
+  ) => {
+    let newStock = currentStock;
+    let quantityChange = quantity;
+
+    if (type === 'add') {
+      newStock = currentStock + quantity;
+    } else if (type === 'remove') {
+      newStock = Math.max(0, currentStock - quantity);
+      quantityChange = -quantity;
+    } else if (type === 'set') {
+      newStock = quantity;
+      quantityChange = quantity - currentStock;
+    }
+
+    // Update product stock
+    const updateResult = await productsApi.update(productId, { stock_quantity: newStock });
+    if (!updateResult.success) {
+      return updateResult;
+    }
+
+    // Record adjustment
+    const adjustmentResult = await apiRequest<{ id: number }>("POST", {
+      table: "stock_adjustments",
+      data: {
+        product_id: productId,
+        adjustment_type: type,
+        quantity_change: quantityChange,
+        previous_quantity: currentStock,
+        new_quantity: newStock,
+        reason: reason || null,
+        created_at: formatMySQLDateTime(new Date()),
+      },
+    });
+
+    return { success: true, newStock, adjustmentResult };
+  },
+
+  // Record sale (auto-called when sale is made)
+  recordSale: async (productId: string, quantitySold: number, currentStock: number) => {
+    const newStock = Math.max(0, currentStock - quantitySold);
+
+    // Update product stock
+    const updateResult = await productsApi.update(productId, { stock_quantity: newStock });
+    if (!updateResult.success) {
+      return updateResult;
+    }
+
+    // Record adjustment as sale
+    await apiRequest("POST", {
+      table: "stock_adjustments",
+      data: {
+        product_id: productId,
+        adjustment_type: 'sale',
+        quantity_change: -quantitySold,
+        previous_quantity: currentStock,
+        new_quantity: newStock,
+        reason: 'POS Sale',
+        created_at: formatMySQLDateTime(new Date()),
+      },
+    });
+
+    return { success: true, newStock };
+  },
+
+  // Get adjustment history for a product
+  getHistory: async (productId: string, limit = 50) => {
+    const result = await apiRequest<StockAdjustmentRecord[]>("GET", {
+      table: "stock_adjustments",
+      filters: { product_id: productId },
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit,
+    });
+    return result;
+  },
+
+  // Get all recent adjustments
+  getAllHistory: async (limit = 100) => {
+    const result = await apiRequest<StockAdjustmentRecord[]>("GET", {
+      table: "stock_adjustments",
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit,
+    });
+    return result;
+  },
+};
+
 // Required schema for the POS system
 export const REQUIRED_SCHEMA = {
   products: {
@@ -346,6 +502,9 @@ export const REQUIRED_SCHEMA = {
       { name: "name", type: "VARCHAR(255) NOT NULL" },
       { name: "price", type: "DECIMAL(10,2) NOT NULL" },
       { name: "category", type: "VARCHAR(100)" },
+      { name: "image_url", type: "VARCHAR(500)" },
+      { name: "stock_quantity", type: "INT DEFAULT 0" },
+      { name: "low_stock_threshold", type: "INT DEFAULT 5" },
       { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
     ],
     createSQL: `CREATE TABLE IF NOT EXISTS products (
@@ -353,6 +512,9 @@ export const REQUIRED_SCHEMA = {
       name VARCHAR(255) NOT NULL,
       price DECIMAL(10,2) NOT NULL,
       category VARCHAR(100),
+      image_url VARCHAR(500),
+      stock_quantity INT DEFAULT 0,
+      low_stock_threshold INT DEFAULT 5,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
   },
@@ -389,6 +551,31 @@ export const REQUIRED_SCHEMA = {
       product_id VARCHAR(50) NOT NULL,
       quantities JSON,
       UNIQUE KEY unique_product (product_id)
+    )`,
+  },
+  stock_adjustments: {
+    tableName: "stock_adjustments",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "product_id", type: "VARCHAR(50) NOT NULL" },
+      { name: "adjustment_type", type: "ENUM('add', 'remove', 'set', 'sale') NOT NULL" },
+      { name: "quantity_change", type: "INT NOT NULL" },
+      { name: "previous_quantity", type: "INT NOT NULL" },
+      { name: "new_quantity", type: "INT NOT NULL" },
+      { name: "reason", type: "VARCHAR(255)" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS stock_adjustments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id VARCHAR(50) NOT NULL,
+      adjustment_type ENUM('add', 'remove', 'set', 'sale') NOT NULL,
+      quantity_change INT NOT NULL,
+      previous_quantity INT NOT NULL,
+      new_quantity INT NOT NULL,
+      reason VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_product_id (product_id),
+      INDEX idx_created_at (created_at)
     )`,
   },
 };
