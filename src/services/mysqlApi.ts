@@ -83,14 +83,14 @@ async function apiRequest<T>(
 // Products API
 export const productsApi = {
   getAll: async () => {
-    const result = await apiRequest<Array<{ id: string; name: string; price: number }>>(
+    const result = await apiRequest<Array<{ id: string; name: string; price: number; category?: string }>>(
       "GET",
       { table: "products", limit: 1000 }
     );
     return result;
   },
 
-  create: async (product: { name: string; price: number }) => {
+  create: async (product: { name: string; price: number; category?: string }) => {
     const result = await apiRequest<{ id: number }>("POST", {
       table: "products",
       data: product,
@@ -98,7 +98,7 @@ export const productsApi = {
     return result;
   },
 
-  update: async (id: string, data: { name?: string; price?: number }) => {
+  update: async (id: string, data: { name?: string; price?: number; category?: string }) => {
     const result = await apiRequest("PUT", {
       table: "products",
       id,

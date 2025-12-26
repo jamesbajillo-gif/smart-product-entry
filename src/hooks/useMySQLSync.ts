@@ -33,6 +33,7 @@ export function useMySQLSync() {
               id: String(p.id),
               name: p.name,
               price: Number(p.price),
+              category: p.category as Product["category"],
             }))
           );
         }
@@ -80,7 +81,11 @@ export function useMySQLSync() {
   const addProduct = useCallback(
     async (product: Omit<Product, "id">) => {
       if (isOnline) {
-        const result = await productsApi.create(product);
+        const result = await productsApi.create({
+          name: product.name,
+          price: product.price,
+          category: product.category,
+        });
         if (result.success && result.id) {
           const newProduct = { ...product, id: String(result.id) };
           setProducts((prev) => [...prev, newProduct]);

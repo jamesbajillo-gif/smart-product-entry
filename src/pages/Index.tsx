@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Product, OrderItem } from "@/types/product";
+import { Product, OrderItem, ProductCategory } from "@/types/product";
 import { OrderSidebar } from "@/components/OrderSidebar";
 import { ProductSearch } from "@/components/ProductSearch";
 import { QuantityDialog } from "@/components/QuantityDialog";
@@ -76,8 +76,8 @@ const Index = () => {
   );
 
   const handleNewProductConfirm = useCallback(
-    async (name: string, price: number) => {
-      const newProduct = await addProduct({ name, price });
+    async (name: string, price: number, category?: ProductCategory) => {
+      const newProduct = await addProduct({ name, price, category });
       setNewProductName(null);
       setSelectedProduct(newProduct);
 
