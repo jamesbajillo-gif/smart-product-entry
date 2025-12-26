@@ -129,6 +129,8 @@ export function useMySQLSync() {
               image_url: p.image_url || undefined,
               stock_quantity: p.stock_quantity ?? 0,
               low_stock_threshold: p.low_stock_threshold ?? 5,
+              // Convert MySQL TINYINT (0/1) to boolean
+              skip_stock_tracking: Boolean(p.skip_stock_tracking),
             }))
           );
         }
@@ -208,6 +210,7 @@ export function useMySQLSync() {
           image_url?: string;
           stock_quantity?: number;
           low_stock_threshold?: number;
+          skip_stock_tracking?: boolean;
         } = {
           name: product.name,
           price: product.price,
@@ -221,6 +224,9 @@ export function useMySQLSync() {
         }
         if (product.low_stock_threshold !== undefined) {
           productData.low_stock_threshold = product.low_stock_threshold;
+        }
+        if (product.skip_stock_tracking !== undefined) {
+          productData.skip_stock_tracking = product.skip_stock_tracking;
         }
         
         const result = await productsApi.create(productData);

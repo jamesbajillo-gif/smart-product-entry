@@ -119,6 +119,7 @@ export const productsApi = {
       image_url?: string;
       stock_quantity?: number;
       low_stock_threshold?: number;
+      skip_stock_tracking?: number | boolean;
     }>>(
       "GET",
       { table: "products", limit: 1000 }
@@ -133,10 +134,16 @@ export const productsApi = {
     image_url?: string;
     stock_quantity?: number;
     low_stock_threshold?: number;
+    skip_stock_tracking?: boolean;
   }) => {
+    // Convert boolean to 1/0 for MySQL
+    const data = {
+      ...product,
+      skip_stock_tracking: product.skip_stock_tracking ? 1 : 0,
+    };
     const result = await apiRequest<{ id: number }>("POST", {
       table: "products",
-      data: product,
+      data,
     });
     return result;
   },
@@ -148,11 +155,19 @@ export const productsApi = {
     image_url?: string;
     stock_quantity?: number;
     low_stock_threshold?: number;
+    skip_stock_tracking?: boolean;
   }) => {
+    // Convert boolean to 1/0 for MySQL if provided
+    const updateData = {
+      ...data,
+      ...(data.skip_stock_tracking !== undefined && { 
+        skip_stock_tracking: data.skip_stock_tracking ? 1 : 0 
+      }),
+    };
     const result = await apiRequest("PUT", {
       table: "products",
       id,
-      data,
+      data: updateData,
     });
     return result;
   },
@@ -559,6 +574,7 @@ export const REQUIRED_SCHEMA = {
       { name: "image_url", type: "VARCHAR(500)" },
       { name: "stock_quantity", type: "INT DEFAULT 0" },
       { name: "low_stock_threshold", type: "INT DEFAULT 5" },
+      { name: "skip_stock_tracking", type: "TINYINT(1) DEFAULT 0" },
       { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
     ],
     createSQL: `CREATE TABLE IF NOT EXISTS products (
@@ -569,6 +585,7 @@ export const REQUIRED_SCHEMA = {
       image_url VARCHAR(500),
       stock_quantity INT DEFAULT 0,
       low_stock_threshold INT DEFAULT 5,
+      skip_stock_tracking TINYINT(1) DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
   },

@@ -18,6 +18,7 @@ export interface Product {
   image_url?: string;
   stock_quantity?: number;
   low_stock_threshold?: number;
+  skip_stock_tracking?: boolean;
 }
 
 export interface OrderItem {

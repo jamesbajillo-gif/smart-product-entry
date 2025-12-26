@@ -52,6 +52,7 @@ export default function ProductManagement() {
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editStockQuantity, setEditStockQuantity] = useState("");
   const [editLowStockThreshold, setEditLowStockThreshold] = useState("");
+  const [editSkipStockTracking, setEditSkipStockTracking] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
@@ -59,6 +60,7 @@ export default function ProductManagement() {
   const [newImageUrl, setNewImageUrl] = useState("");
   const [newStockQuantity, setNewStockQuantity] = useState("0");
   const [newLowStockThreshold, setNewLowStockThreshold] = useState("5");
+  const [newSkipStockTracking, setNewSkipStockTracking] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState<ProductCategory>("Beverages");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
@@ -68,14 +70,19 @@ export default function ProductManagement() {
   const { toast } = useToast();
 
   const lowStockCount = useMemo(() => {
-    return products.filter(p => (p.stock_quantity ?? 0) <= (p.low_stock_threshold ?? 5)).length;
+    // Exclude products with skip_stock_tracking from low stock count
+    return products.filter(p => 
+      !p.skip_stock_tracking && (p.stock_quantity ?? 0) <= (p.low_stock_threshold ?? 5)
+    ).length;
   }, [products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = categoryFilter === "All" || p.category === categoryFilter;
-      const matchesLowStock = !showLowStockOnly || (p.stock_quantity ?? 0) <= (p.low_stock_threshold ?? 5);
+      // Exclude skip_stock_tracking products from low stock filter
+      const isLowStock = !p.skip_stock_tracking && (p.stock_quantity ?? 0) <= (p.low_stock_threshold ?? 5);
+      const matchesLowStock = !showLowStockOnly || isLowStock;
       return matchesSearch && matchesCategory && matchesLowStock;
     });
   }, [products, searchQuery, categoryFilter, showLowStockOnly]);
@@ -131,7 +138,7 @@ export default function ProductManagement() {
       return;
     }
 
-    // Build product data - only include stock fields if user provided them
+    // Build product data - include skip_stock_tracking flag
     const productData: {
       name: string;
       price: number;
@@ -139,16 +146,18 @@ export default function ProductManagement() {
       image_url?: string;
       stock_quantity?: number;
       low_stock_threshold?: number;
+      skip_stock_tracking?: boolean;
     } = {
       name: newName.trim(),
       price: parseFloat(newPrice),
       category: newCategory,
       image_url: newImageUrl.trim() || undefined,
+      skip_stock_tracking: newSkipStockTracking,
     };
     
-    // Only add stock fields if user explicitly entered values
-    if (newStockQuantity.trim() !== "" && newStockQuantity !== "0") {
-      productData.stock_quantity = parseInt(newStockQuantity);
+    // Only add stock fields if not skipping stock tracking and user entered values
+    if (!newSkipStockTracking && newStockQuantity.trim() !== "") {
+      productData.stock_quantity = parseInt(newStockQuantity) || 0;
       productData.low_stock_threshold = parseInt(newLowStockThreshold) || 5;
     }
     
@@ -162,6 +171,7 @@ export default function ProductManagement() {
       setNewImageUrl("");
       setNewStockQuantity("0");
       setNewLowStockThreshold("5");
+      setNewSkipStockTracking(false);
       setShowAddForm(false);
     } else {
       toast({ title: "Error", description: result.error || "Failed to add product" });
@@ -176,6 +186,7 @@ export default function ProductManagement() {
     setEditImageUrl(product.image_url || "");
     setEditStockQuantity((product.stock_quantity ?? 0).toString());
     setEditLowStockThreshold((product.low_stock_threshold ?? 5).toString());
+    setEditSkipStockTracking(!!product.skip_stock_tracking);
   };
 
   const handleSaveEdit = async () => {
@@ -186,8 +197,9 @@ export default function ProductManagement() {
       price: parseFloat(editPrice),
       category: editCategory,
       image_url: editImageUrl.trim() || undefined,
-      stock_quantity: parseInt(editStockQuantity) || 0,
-      low_stock_threshold: parseInt(editLowStockThreshold) || 5,
+      stock_quantity: editSkipStockTracking ? undefined : (parseInt(editStockQuantity) || 0),
+      low_stock_threshold: editSkipStockTracking ? undefined : (parseInt(editLowStockThreshold) || 5),
+      skip_stock_tracking: editSkipStockTracking,
     });
 
     if (result.success) {
@@ -218,6 +230,7 @@ export default function ProductManagement() {
     setEditImageUrl("");
     setEditStockQuantity("");
     setEditLowStockThreshold("");
+    setEditSkipStockTracking(false);
   };
 
   // Restock from dialog
@@ -524,7 +537,8 @@ export default function ProductManagement() {
                     onChange={(e) => setNewStockQuantity(e.target.value)}
                     placeholder="0"
                     min="0"
-                    className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    disabled={newSkipStockTracking}
+                    className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
                   />
                 </div>
                 <div className="flex-1">
@@ -535,10 +549,20 @@ export default function ProductManagement() {
                     onChange={(e) => setNewLowStockThreshold(e.target.value)}
                     placeholder="5"
                     min="0"
-                    className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    disabled={newSkipStockTracking}
+                    className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
                   />
                 </div>
               </div>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newSkipStockTracking}
+                  onChange={(e) => setNewSkipStockTracking(e.target.checked)}
+                  className="rounded border-border"
+                />
+                <span>Always available (skip stock tracking)</span>
+              </label>
               <div className="flex gap-2 items-end">
                 <Button onClick={handleAdd} className="gap-2">
                   <Plus className="w-4 h-4" />
@@ -697,42 +721,63 @@ export default function ProductManagement() {
                             </td>
                             <td className="p-3">
                               {editingId === product.id ? (
-                                <div className="flex gap-2">
-                                  <input
-                                    type="number"
-                                    value={editStockQuantity}
-                                    onChange={(e) => setEditStockQuantity(e.target.value)}
-                                    className="px-2 py-1 bg-input rounded text-foreground text-sm w-16"
-                                    placeholder="Stock"
-                                  />
-                                  <input
-                                    type="number"
-                                    value={editLowStockThreshold}
-                                    onChange={(e) => setEditLowStockThreshold(e.target.value)}
-                                    className="px-2 py-1 bg-input rounded text-foreground text-sm w-16"
-                                    placeholder="Alert"
-                                  />
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="number"
+                                      value={editStockQuantity}
+                                      onChange={(e) => setEditStockQuantity(e.target.value)}
+                                      className="px-2 py-1 bg-input rounded text-foreground text-sm w-16 disabled:opacity-50"
+                                      placeholder="Stock"
+                                      disabled={editSkipStockTracking}
+                                    />
+                                    <input
+                                      type="number"
+                                      value={editLowStockThreshold}
+                                      onChange={(e) => setEditLowStockThreshold(e.target.value)}
+                                      className="px-2 py-1 bg-input rounded text-foreground text-sm w-16 disabled:opacity-50"
+                                      placeholder="Alert"
+                                      disabled={editSkipStockTracking}
+                                    />
+                                  </div>
+                                  <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={editSkipStockTracking}
+                                      onChange={(e) => setEditSkipStockTracking(e.target.checked)}
+                                      className="rounded border-border"
+                                    />
+                                    <span>Always available (skip stock tracking)</span>
+                                  </label>
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium min-w-[60px] text-center ${getStockBg(product)} ${getStockColor(product)}`}>
-                                    {product.stock_quantity ?? 0}
-                                  </span>
-                                  <button
-                                    onClick={() => setStockAdjustProduct(product)}
-                                    disabled={!isOnline}
-                                    className="p-1.5 rounded bg-success/20 hover:bg-success/30 text-success disabled:opacity-50 transition-colors"
-                                    title="Restock"
-                                  >
-                                    <Truck className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => setStockHistoryProduct(product)}
-                                    className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground transition-colors"
-                                    title="View history"
-                                  >
-                                    <History className="w-4 h-4" />
-                                  </button>
+                                  {product.skip_stock_tracking ? (
+                                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-success/20 text-success">
+                                      ∞ Always
+                                    </span>
+                                  ) : (
+                                    <>
+                                      <span className={`px-2 py-1 rounded-full text-xs font-medium min-w-[60px] text-center ${getStockBg(product)} ${getStockColor(product)}`}>
+                                        {product.stock_quantity ?? 0}
+                                      </span>
+                                      <button
+                                        onClick={() => setStockAdjustProduct(product)}
+                                        disabled={!isOnline}
+                                        className="p-1.5 rounded bg-success/20 hover:bg-success/30 text-success disabled:opacity-50 transition-colors"
+                                        title="Restock"
+                                      >
+                                        <Truck className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => setStockHistoryProduct(product)}
+                                        className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground transition-colors"
+                                        title="View history"
+                                      >
+                                        <History className="w-4 h-4" />
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </td>
