@@ -35,7 +35,12 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
   
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Enter" && !isSubmitted) {
+      if (isSubmitted) return;
+      
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === "Enter") {
         e.preventDefault();
         // If Cancel button is focused, close instead of submit
         if (document.activeElement === cancelRef.current) {
