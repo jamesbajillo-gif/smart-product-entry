@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { Product, OrderItem } from "@/types/product";
 import { OrderSidebar } from "@/components/OrderSidebar";
 import { ProductSearch } from "@/components/ProductSearch";
@@ -9,7 +10,8 @@ import { ReceiptDialog } from "@/components/ReceiptDialog";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
-import { Terminal, Wifi, WifiOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Terminal, Wifi, WifiOff, Receipt } from "lucide-react";
 
 const Index = () => {
   const {
@@ -168,6 +170,12 @@ const Index = () => {
                 {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
                 {isOnline ? 'Online' : 'Offline'}
               </div>
+              <Link to="/sales" className="ml-auto">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Receipt className="w-4 h-4" />
+                  Sales History
+                </Button>
+              </Link>
             </div>
             <p className="text-muted-foreground">
               Fast product search with auto-complete
