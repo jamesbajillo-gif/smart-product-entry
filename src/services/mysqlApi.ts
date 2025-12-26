@@ -1,6 +1,21 @@
 // MySQL API Service - works with the General-Purpose MySQL CRUD API
 
-const API_URL = import.meta.env.VITE_MYSQL_API_URL || "";
+// Allow manual override via localStorage
+const getApiUrl = (): string => {
+  const manualUrl = localStorage.getItem("mysql-api-url");
+  if (manualUrl) return manualUrl;
+  return import.meta.env.VITE_MYSQL_API_URL || "";
+};
+
+export const setApiUrl = (url: string) => {
+  if (url) {
+    localStorage.setItem("mysql-api-url", url);
+  } else {
+    localStorage.removeItem("mysql-api-url");
+  }
+};
+
+export const getConfiguredApiUrl = getApiUrl;
 
 export interface ApiResponse<T = unknown> {
   success: boolean;
@@ -31,7 +46,7 @@ async function apiRequest<T>(
 ): Promise<ApiResponse<T>> {
   const { table, id, data, filters, limit, offset, order_by, order_dir, action, query } = options;
 
-  let url = API_URL;
+  let url = getApiUrl();
   const params = new URLSearchParams();
 
   if (action) params.append("action", action);
@@ -207,9 +222,10 @@ export const quantityHistoryApi = {
 
 // Check API availability
 export const checkApiConnection = async (): Promise<boolean> => {
-  if (!API_URL) return false;
+  const apiUrl = getApiUrl();
+  if (!apiUrl) return false;
   try {
-    const response = await fetch(`${API_URL}?action=info`);
+    const response = await fetch(`${apiUrl}?action=info`);
     const result = await response.json();
     return result.success === true;
   } catch {
@@ -329,4 +345,4 @@ export const REQUIRED_SCHEMA = {
   },
 };
 
-export const getApiUrl = () => API_URL;
+

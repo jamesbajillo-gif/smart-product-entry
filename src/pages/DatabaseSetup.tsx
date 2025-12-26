@@ -4,9 +4,9 @@ import {
   databaseApi,
   checkApiConnection,
   REQUIRED_SCHEMA,
-  getApiUrl,
+  getConfiguredApiUrl,
+  setApiUrl,
   TableColumn,
-  ApiResponse,
 } from "@/services/mysqlApi";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,9 +37,11 @@ export default function DatabaseSetup() {
   const [dbInfo, setDbInfo] = useState<{ database: string; version: string } | null>(null);
   const [existingTables, setExistingTables] = useState<string[]>([]);
   const [tableStatuses, setTableStatuses] = useState<TableStatus[]>([]);
+  const [manualApiUrl, setManualApiUrl] = useState(() => getConfiguredApiUrl());
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
   const { toast } = useToast();
 
-  const apiUrl = getApiUrl();
+  const currentApiUrl = getConfiguredApiUrl();
 
   const checkConnection = async () => {
     setIsLoading(true);
@@ -67,6 +69,25 @@ export default function DatabaseSetup() {
     }
 
     setIsLoading(false);
+  };
+
+  const handleSaveApiUrl = () => {
+    setApiUrl(manualApiUrl.trim());
+    setIsEditingUrl(false);
+    toast({
+      title: "API URL Updated",
+      description: "Click Refresh to test the connection",
+    });
+  };
+
+  const handleClearApiUrl = () => {
+    setApiUrl("");
+    setManualApiUrl("");
+    setIsEditingUrl(false);
+    toast({
+      title: "API URL Cleared",
+      description: "Using environment variable if available",
+    });
   };
 
   const checkRequiredTables = async (tables: string[]) => {
@@ -192,20 +213,77 @@ export default function DatabaseSetup() {
           </div>
         </header>
 
-        {/* API URL Status */}
+        {/* API URL Configuration */}
         <div className="glass-panel rounded-lg p-4 mb-6">
-          <div className="flex items-center gap-3 mb-3">
-            <Settings className="w-5 h-5 text-muted-foreground" />
-            <h2 className="font-semibold text-foreground">API Configuration</h2>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">API URL:</span>
-            {apiUrl ? (
-              <code className="px-2 py-1 bg-secondary rounded text-foreground">{apiUrl}</code>
-            ) : (
-              <span className="text-destructive">Not configured (set VITE_MYSQL_API_URL)</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <Settings className="w-5 h-5 text-muted-foreground" />
+              <h2 className="font-semibold text-foreground">API Configuration</h2>
+            </div>
+            {!isEditingUrl && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditingUrl(true)}
+              >
+                Edit
+              </Button>
             )}
           </div>
+
+          {isEditingUrl ? (
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">
+                  MySQL API URL
+                </label>
+                <input
+                  type="url"
+                  value={manualApiUrl}
+                  onChange={(e) => setManualApiUrl(e.target.value)}
+                  placeholder="https://your-server.com/mysql/api.php"
+                  className="w-full px-3 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleSaveApiUrl}>
+                  Save
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setManualApiUrl(currentApiUrl);
+                    setIsEditingUrl(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                {currentApiUrl && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={handleClearApiUrl}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">API URL:</span>
+              {currentApiUrl ? (
+                <code className="px-2 py-1 bg-secondary rounded text-foreground break-all">
+                  {currentApiUrl}
+                </code>
+              ) : (
+                <span className="text-destructive">Not configured</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Connection Status */}
