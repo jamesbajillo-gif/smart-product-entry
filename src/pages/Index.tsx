@@ -1,23 +1,27 @@
 import { useState, useCallback } from "react";
 import { Product, OrderItem } from "@/types/product";
-import { initialProducts } from "@/data/products";
 import { OrderSidebar } from "@/components/OrderSidebar";
 import { ProductSearch } from "@/components/ProductSearch";
 import { QuantityDialog } from "@/components/QuantityDialog";
 import { AddProductDialog } from "@/components/AddProductDialog";
 import { PaymentDialog, PaymentDetails } from "@/components/PaymentDialog";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
+import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
-import { Terminal } from "lucide-react";
-
-// Track quantity history per product: productId -> array of quantities sold
-type QuantityHistory = Record<string, number[]>;
+import { Terminal, Wifi, WifiOff } from "lucide-react";
 
 const Index = () => {
-  const [products, setProducts] = useSessionStorage<Product[]>("pos-products", initialProducts);
+  const {
+    products,
+    addProduct,
+    recordSale,
+    shouldShowQtyDialog,
+    isOnline,
+    isLoading,
+  } = useMySQLSync();
+
   const [orderItems, setOrderItems] = useSessionStorage<OrderItem[]>("pos-order", []);
-  const [quantityHistory, setQuantityHistory] = useSessionStorage<QuantityHistory>("pos-qty-history", {});
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [newProductName, setNewProductName] = useState<string | null>(null);
@@ -25,14 +29,6 @@ const Index = () => {
   const [receiptItems, setReceiptItems] = useState<OrderItem[] | null>(null);
   const [receiptPayment, setReceiptPayment] = useState<PaymentDetails | null>(null);
   const { toast } = useToast();
-
-  // Check if product should show qty dialog based on history
-  const shouldShowQtyDialog = useCallback((productId: string): boolean => {
-    const history = quantityHistory[productId] || [];
-    // Show qty dialog if product has been sold 2+ times with qty > 1
-    const multiQtySales = history.filter((qty) => qty > 1).length;
-    return multiQtySales >= 2;
-  }, [quantityHistory]);
 
   // Add product to cart (with or without qty dialog)
   const addToCart = useCallback((product: Product, quantity: number) => {
@@ -78,14 +74,8 @@ const Index = () => {
   );
 
   const handleNewProductConfirm = useCallback(
-    (name: string, price: number) => {
-      const newProduct: Product = {
-        id: Date.now().toString(),
-        name,
-        price,
-      };
-
-      setProducts((prev) => [...prev, newProduct]);
+    async (name: string, price: number) => {
+      const newProduct = await addProduct({ name, price });
       setNewProductName(null);
       setSelectedProduct(newProduct);
 
@@ -94,12 +84,12 @@ const Index = () => {
         description: `${name} - ₱${price.toFixed(2)}`,
       });
     },
-    [toast]
+    [addProduct, toast]
   );
 
   const handleRemoveItem = useCallback((productId: string) => {
     setOrderItems((prev) => prev.filter((item) => item.product.id !== productId));
-  }, []);
+  }, [setOrderItems]);
 
   const handleUpdateQuantity = useCallback((productId: string, quantity: number) => {
     if (quantity <= 0) {
@@ -111,7 +101,7 @@ const Index = () => {
         )
       );
     }
-  }, []);
+  }, [setOrderItems]);
 
   const handleClearOrder = useCallback(() => {
     setOrderItems([]);
@@ -119,7 +109,7 @@ const Index = () => {
       title: "Order cleared",
       description: "All items have been removed",
     });
-  }, [toast]);
+  }, [setOrderItems, toast]);
 
   const handleCheckout = useCallback(() => {
     if (orderItems.length === 0) {
@@ -132,20 +122,15 @@ const Index = () => {
     setShowPayment(true);
   }, [orderItems, toast]);
 
-  const handlePaymentConfirm = useCallback((details: PaymentDetails) => {
-    // Record quantity history for smart qty dialog
-    orderItems.forEach((item) => {
-      setQuantityHistory((prev) => ({
-        ...prev,
-        [item.product.id]: [...(prev[item.product.id] || []), item.quantity].slice(-10), // Keep last 10
-      }));
-    });
+  const handlePaymentConfirm = useCallback(async (details: PaymentDetails) => {
+    // Record sale to database
+    await recordSale(orderItems, details);
 
     setShowPayment(false);
     setReceiptItems([...orderItems]);
     setReceiptPayment(details);
     setOrderItems([]);
-  }, [orderItems, setQuantityHistory, setOrderItems]);
+  }, [orderItems, recordSale, setOrderItems]);
 
   const handlePaymentCancel = useCallback(() => {
     setShowPayment(false);
@@ -155,6 +140,17 @@ const Index = () => {
     setReceiptItems(null);
     setReceiptPayment(null);
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -168,6 +164,10 @@ const Index = () => {
                 <Terminal className="w-6 h-6 text-primary" />
               </div>
               <h1 className="text-3xl font-bold text-foreground">QuickPOS</h1>
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${isOnline ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'}`}>
+                {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                {isOnline ? 'Online' : 'Offline'}
+              </div>
             </div>
             <p className="text-muted-foreground">
               Fast product search with auto-complete
