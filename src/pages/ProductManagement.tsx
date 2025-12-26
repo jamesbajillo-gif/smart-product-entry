@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { stockApi } from "@/services/mysqlApi";
+import { stockApi, RestockInfo } from "@/services/mysqlApi";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { Product, PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
 import { Button } from "@/components/ui/button";
@@ -216,20 +216,34 @@ export default function ProductManagement() {
     if (!stockAdjustProduct) return;
 
     const currentStock = stockAdjustProduct.stock_quantity ?? 0;
+    
+    // Build restock info for API
+    const restockInfo: RestockInfo | undefined = restockData ? {
+      supplier: restockData.supplier,
+      unitCost: restockData.unitCost,
+      notes: restockData.notes,
+    } : undefined;
+
     const result = await stockApi.adjustStock(
       stockAdjustProduct.id,
       type,
       quantity,
       currentStock,
-      reason
+      reason,
+      restockInfo
     );
 
     if (result.success) {
       const newStock = currentStock + quantity;
       await updateProduct(stockAdjustProduct.id, { stock_quantity: newStock });
+      
+      const costInfo = restockData?.unitCost 
+        ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
+        : '';
+      
       toast({ 
         title: "Stock Updated", 
-        description: `Added ${quantity} units to ${stockAdjustProduct.name}` 
+        description: `Added ${quantity} units to ${stockAdjustProduct.name}${costInfo}` 
       });
     } else {
       toast({ title: "Error", description: "Failed to update stock" });

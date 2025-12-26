@@ -33,5 +33,9 @@ export interface StockAdjustment {
   previous_quantity: number;
   new_quantity: number;
   reason?: string;
+  supplier?: string;
+  unit_cost?: number;
+  total_cost?: number;
+  notes?: string;
   created_at?: string;
 }

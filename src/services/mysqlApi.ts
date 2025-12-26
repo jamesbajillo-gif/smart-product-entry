@@ -394,17 +394,28 @@ export interface StockAdjustmentRecord {
   previous_quantity: number;
   new_quantity: number;
   reason?: string;
+  supplier?: string;
+  unit_cost?: number;
+  total_cost?: number;
+  notes?: string;
   created_at?: string;
 }
 
+export interface RestockInfo {
+  supplier?: string;
+  unitCost?: number;
+  notes?: string;
+}
+
 export const stockApi = {
-  // Adjust stock (add, remove, set)
+  // Adjust stock (add, remove, set) with optional restock info
   adjustStock: async (
     productId: string,
     type: 'add' | 'remove' | 'set',
     quantity: number,
     currentStock: number,
-    reason?: string
+    reason?: string,
+    restockInfo?: RestockInfo
   ) => {
     let newStock = currentStock;
     let quantityChange = quantity;
@@ -425,7 +436,10 @@ export const stockApi = {
       return updateResult;
     }
 
-    // Record adjustment
+    // Calculate total cost if unit cost provided
+    const totalCost = restockInfo?.unitCost ? quantity * restockInfo.unitCost : null;
+
+    // Record adjustment with restock info
     const adjustmentResult = await apiRequest<{ id: number }>("POST", {
       table: "stock_adjustments",
       data: {
@@ -435,6 +449,10 @@ export const stockApi = {
         previous_quantity: currentStock,
         new_quantity: newStock,
         reason: reason || null,
+        supplier: restockInfo?.supplier || null,
+        unit_cost: restockInfo?.unitCost || null,
+        total_cost: totalCost,
+        notes: restockInfo?.notes || null,
         created_at: formatMySQLDateTime(new Date()),
       },
     });
@@ -563,6 +581,10 @@ export const REQUIRED_SCHEMA = {
       { name: "previous_quantity", type: "INT NOT NULL" },
       { name: "new_quantity", type: "INT NOT NULL" },
       { name: "reason", type: "VARCHAR(255)" },
+      { name: "supplier", type: "VARCHAR(255)" },
+      { name: "unit_cost", type: "DECIMAL(10,2)" },
+      { name: "total_cost", type: "DECIMAL(10,2)" },
+      { name: "notes", type: "TEXT" },
       { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
     ],
     createSQL: `CREATE TABLE IF NOT EXISTS stock_adjustments (
@@ -573,9 +595,14 @@ export const REQUIRED_SCHEMA = {
       previous_quantity INT NOT NULL,
       new_quantity INT NOT NULL,
       reason VARCHAR(255),
+      supplier VARCHAR(255),
+      unit_cost DECIMAL(10,2),
+      total_cost DECIMAL(10,2),
+      notes TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_product_id (product_id),
-      INDEX idx_created_at (created_at)
+      INDEX idx_created_at (created_at),
+      INDEX idx_supplier (supplier)
     )`,
   },
 };

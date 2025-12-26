@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Product, StockAdjustment } from "@/types/product";
 import { stockApi } from "@/services/mysqlApi";
 import { Button } from "@/components/ui/button";
-import { X, History, Plus, Minus, Package, ShoppingCart, RefreshCw } from "lucide-react";
+import { X, History, Plus, Minus, Package, ShoppingCart, RefreshCw, Truck } from "lucide-react";
 import { format } from "date-fns";
 
 interface StockHistoryDialogProps {
@@ -95,9 +95,9 @@ export function StockHistoryDialog({ product, onClose }: StockHistoryDialogProps
               {history.map((adjustment) => (
                 <div
                   key={adjustment.id}
-                  className="flex items-center gap-3 p-3 bg-secondary/20 rounded-lg"
+                  className="flex items-start gap-3 p-3 bg-secondary/20 rounded-lg"
                 >
-                  <div className="p-2 bg-secondary/50 rounded-lg">
+                  <div className="p-2 bg-secondary/50 rounded-lg mt-0.5">
                     {getTypeIcon(adjustment.adjustment_type)}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -111,16 +111,46 @@ export function StockHistoryDialog({ product, onClose }: StockHistoryDialogProps
                         {adjustment.quantity_change > 0 ? '+' : ''}{adjustment.quantity_change}
                       </span>
                     </div>
-                    {adjustment.reason && (
+                    
+                    {/* Supplier info */}
+                    {adjustment.supplier && (
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                        <Truck className="w-3 h-3" />
+                        <span>{adjustment.supplier}</span>
+                      </div>
+                    )}
+                    
+                    {/* Cost info */}
+                    {adjustment.unit_cost && (
+                      <div className="text-sm text-muted-foreground">
+                        ₱{adjustment.unit_cost.toFixed(2)}/unit
+                        {adjustment.total_cost && (
+                          <span className="ml-2 text-primary font-medium">
+                            (₱{adjustment.total_cost.toFixed(2)} total)
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Notes */}
+                    {adjustment.notes && (
+                      <p className="text-xs text-muted-foreground italic mt-1">
+                        {adjustment.notes}
+                      </p>
+                    )}
+                    
+                    {/* Reason (fallback) */}
+                    {adjustment.reason && !adjustment.supplier && (
                       <p className="text-sm text-muted-foreground truncate">
                         {adjustment.reason}
                       </p>
                     )}
-                    <p className="text-xs text-muted-foreground">
+                    
+                    <p className="text-xs text-muted-foreground mt-1">
                       {adjustment.previous_quantity} → {adjustment.new_quantity}
                     </p>
                   </div>
-                  <div className="text-right text-xs text-muted-foreground">
+                  <div className="text-right text-xs text-muted-foreground whitespace-nowrap">
                     {adjustment.created_at && format(new Date(adjustment.created_at), 'MMM d, h:mm a')}
                   </div>
                 </div>
