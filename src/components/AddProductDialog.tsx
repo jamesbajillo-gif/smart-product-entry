@@ -109,8 +109,8 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   onKeyDown={(e) => {
-                    // Allow all number keys, backspace, delete, tab, enter, arrows, and decimal
                     if (e.key === "Escape") {
+                      e.stopPropagation();
                       onCancel();
                     }
                   }}
@@ -131,6 +131,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                 onChange={(e) => setStockQuantity(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
+                    e.stopPropagation();
                     onCancel();
                   }
                 }}
