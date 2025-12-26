@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Banknote, Smartphone, Check } from "lucide-react";
+import { X, Banknote, Smartphone, Check, Delete } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export type PaymentMethod = "cash" | "gcash";
@@ -159,13 +159,37 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
               </div>
             </div>
 
+            {/* Numpad for touch devices */}
+            <div className="grid grid-cols-3 gap-2">
+              {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "del"].map((key) => (
+                <Button
+                  key={key}
+                  type="button"
+                  variant="secondary"
+                  className="h-12 text-xl font-mono"
+                  onClick={() => {
+                    if (key === "del") {
+                      setAmountTendered((prev) => prev.slice(0, -1));
+                    } else if (key === "." && amountTendered.includes(".")) {
+                      return;
+                    } else {
+                      setAmountTendered((prev) => prev + key);
+                    }
+                  }}
+                >
+                  {key === "del" ? <Delete className="w-5 h-5" /> : key}
+                </Button>
+              ))}
+            </div>
+
+            {/* Quick amount buttons */}
             {quickAmounts.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {quickAmounts.map((amt) => (
                   <Button
                     key={amt}
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     onClick={() => setAmountTendered(amt.toString())}
                     className="font-mono"
