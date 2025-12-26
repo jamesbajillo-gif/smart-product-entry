@@ -19,6 +19,7 @@ interface PaymentDialogProps {
 export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>("cash");
   const [amountTendered, setAmountTendered] = useState("");
+  const [showNumpad, setShowNumpad] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const numericAmount = amountTendered ? parseFloat(amountTendered) || 0 : total;
@@ -27,7 +28,8 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
 
   useEffect(() => {
     if (selectedMethod === "cash") {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setShowNumpad(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [selectedMethod]);
 
@@ -152,39 +154,45 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
                   min={total}
                   step="0.01"
                   value={amountTendered}
-                  onChange={(e) => setAmountTendered(e.target.value)}
+                  onChange={(e) => {
+                    setAmountTendered(e.target.value);
+                    setShowNumpad(true);
+                  }}
+                  onFocus={() => setShowNumpad(true)}
                   placeholder={total.toFixed(2)}
                   className="w-full pl-10 pr-4 py-4 bg-input rounded-lg text-2xl font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                 />
               </div>
             </div>
 
-            {/* Numpad for touch devices */}
-            <div className="grid grid-cols-4 gap-2">
-              {["1", "2", "3", "del", "4", "5", "6", "C", "7", "8", "9", ".", "0", "00"].map((key) => (
-                <Button
-                  key={key}
-                  type="button"
-                  variant={key === "C" ? "destructive" : "secondary"}
-                  className={`h-12 text-xl font-mono ${key === "0" ? "col-span-2" : ""}`}
-                  onClick={() => {
-                    if (key === "del") {
-                      setAmountTendered((prev) => prev.slice(0, -1));
-                    } else if (key === "C") {
-                      setAmountTendered("");
-                    } else if (key === "." && amountTendered.includes(".")) {
-                      return;
-                    } else if (key === "00") {
-                      setAmountTendered((prev) => prev + "00");
-                    } else {
-                      setAmountTendered((prev) => prev + key);
-                    }
-                  }}
-                >
-                  {key === "del" ? <Delete className="w-5 h-5" /> : key}
-                </Button>
-              ))}
-            </div>
+            {/* Numpad for touch devices - hidden by default */}
+            {showNumpad && (
+              <div className="grid grid-cols-4 gap-2">
+                {["1", "2", "3", "del", "4", "5", "6", "C", "7", "8", "9", ".", "0", "00"].map((key) => (
+                  <Button
+                    key={key}
+                    type="button"
+                    variant={key === "C" ? "destructive" : "secondary"}
+                    className={`h-12 text-xl font-mono ${key === "0" ? "col-span-2" : ""}`}
+                    onClick={() => {
+                      if (key === "del") {
+                        setAmountTendered((prev) => prev.slice(0, -1));
+                      } else if (key === "C") {
+                        setAmountTendered("");
+                      } else if (key === "." && amountTendered.includes(".")) {
+                        return;
+                      } else if (key === "00") {
+                        setAmountTendered((prev) => prev + "00");
+                      } else {
+                        setAmountTendered((prev) => prev + key);
+                      }
+                    }}
+                  >
+                    {key === "del" ? <Delete className="w-5 h-5" /> : key}
+                  </Button>
+                ))}
+              </div>
+            )}
 
             {/* Quick amount buttons */}
             {quickAmounts.length > 0 && (
