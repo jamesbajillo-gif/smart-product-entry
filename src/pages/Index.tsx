@@ -5,7 +5,7 @@ import { OrderSidebar } from "@/components/OrderSidebar";
 import { ProductSearch } from "@/components/ProductSearch";
 import { QuantityDialog } from "@/components/QuantityDialog";
 import { AddProductDialog } from "@/components/AddProductDialog";
-import { PaymentDialog, PaymentMethod } from "@/components/PaymentDialog";
+import { PaymentDialog, PaymentDetails } from "@/components/PaymentDialog";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
 import { useToast } from "@/hooks/use-toast";
 import { Terminal } from "lucide-react";
@@ -18,7 +18,7 @@ const Index = () => {
   const [newProductName, setNewProductName] = useState<string | null>(null);
   const [showPayment, setShowPayment] = useState(false);
   const [receiptItems, setReceiptItems] = useState<OrderItem[] | null>(null);
-  const [receiptPaymentMethod, setReceiptPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [receiptPayment, setReceiptPayment] = useState<PaymentDetails | null>(null);
   const { toast } = useToast();
 
   const handleProductSelect = useCallback((product: Product) => {
@@ -112,10 +112,10 @@ const Index = () => {
     setShowPayment(true);
   }, [orderItems, toast]);
 
-  const handlePaymentConfirm = useCallback((method: PaymentMethod) => {
+  const handlePaymentConfirm = useCallback((details: PaymentDetails) => {
     setShowPayment(false);
     setReceiptItems([...orderItems]);
-    setReceiptPaymentMethod(method);
+    setReceiptPayment(details);
     setOrderItems([]);
   }, [orderItems]);
 
@@ -125,7 +125,7 @@ const Index = () => {
 
   const handleCloseReceipt = useCallback(() => {
     setReceiptItems(null);
-    setReceiptPaymentMethod(null);
+    setReceiptPayment(null);
   }, []);
 
   return (
@@ -202,10 +202,10 @@ const Index = () => {
       )}
 
       {/* Receipt Dialog */}
-      {receiptItems && receiptPaymentMethod && (
+      {receiptItems && receiptPayment && (
         <ReceiptDialog
           items={receiptItems}
-          paymentMethod={receiptPaymentMethod}
+          paymentDetails={receiptPayment}
           onClose={handleCloseReceipt}
         />
       )}
