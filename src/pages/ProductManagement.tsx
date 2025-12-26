@@ -6,6 +6,7 @@ import { Product, PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
 import { Button } from "@/components/ui/button";
 import { StockAdjustmentDialog, RestockData } from "@/components/StockAdjustmentDialog";
 import { StockHistoryDialog } from "@/components/StockHistoryDialog";
+import { AddExpenseDialog } from "@/components/AddExpenseDialog";
 import {
   ArrowLeft,
   Package,
@@ -27,6 +28,7 @@ import {
   WifiOff,
   Database,
   Truck,
+  Receipt,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { initialProducts } from "@/data/products";
@@ -66,6 +68,7 @@ export default function ProductManagement() {
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [stockAdjustProduct, setStockAdjustProduct] = useState<Product | null>(null);
   const [stockHistoryProduct, setStockHistoryProduct] = useState<Product | null>(null);
+  const [expenseProduct, setExpenseProduct] = useState<Product | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const { toast } = useToast();
 
@@ -753,9 +756,19 @@ export default function ProductManagement() {
                               ) : (
                                 <div className="flex items-center gap-2">
                                   {product.skip_stock_tracking ? (
-                                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-success/20 text-success">
-                                      ∞ Always
-                                    </span>
+                                    <>
+                                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-success/20 text-success">
+                                        ∞ Always
+                                      </span>
+                                      <button
+                                        onClick={() => setExpenseProduct(product)}
+                                        disabled={!isOnline}
+                                        className="p-1.5 rounded bg-primary/20 hover:bg-primary/30 text-primary disabled:opacity-50 transition-colors"
+                                        title="Add Expense"
+                                      >
+                                        <Receipt className="w-4 h-4" />
+                                      </button>
+                                    </>
                                   ) : (
                                     <>
                                       <span className={`px-2 py-1 rounded-full text-xs font-medium min-w-[60px] text-center ${getStockBg(product)} ${getStockColor(product)}`}>
@@ -892,6 +905,14 @@ export default function ProductManagement() {
         <StockHistoryDialog
           product={stockHistoryProduct}
           onClose={() => setStockHistoryProduct(null)}
+        />
+      )}
+
+      {/* Add Expense Dialog */}
+      {expenseProduct && (
+        <AddExpenseDialog
+          product={expenseProduct}
+          onClose={() => setExpenseProduct(null)}
         />
       )}
     </div>
