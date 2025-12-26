@@ -5,6 +5,7 @@ import { OrderSidebar } from "@/components/OrderSidebar";
 import { ProductSearch } from "@/components/ProductSearch";
 import { QuantityDialog } from "@/components/QuantityDialog";
 import { AddProductDialog } from "@/components/AddProductDialog";
+import { ReceiptDialog } from "@/components/ReceiptDialog";
 import { useToast } from "@/hooks/use-toast";
 import { Terminal } from "lucide-react";
 
@@ -14,6 +15,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [newProductName, setNewProductName] = useState<string | null>(null);
+  const [receiptItems, setReceiptItems] = useState<OrderItem[] | null>(null);
   const { toast } = useToast();
 
   const handleProductSelect = useCallback((product: Product) => {
@@ -97,13 +99,13 @@ const Index = () => {
       });
       return;
     }
-    const total = orderItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-    toast({
-      title: "Checkout complete",
-      description: `Total: ₱${total.toFixed(2)}`,
-    });
+    setReceiptItems([...orderItems]);
     setOrderItems([]);
   }, [orderItems, toast]);
+
+  const handleCloseReceipt = useCallback(() => {
+    setReceiptItems(null);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -165,6 +167,14 @@ const Index = () => {
           productName={newProductName}
           onConfirm={handleNewProductConfirm}
           onCancel={() => setNewProductName(null)}
+        />
+      )}
+
+      {/* Receipt Dialog */}
+      {receiptItems && (
+        <ReceiptDialog
+          items={receiptItems}
+          onClose={handleCloseReceipt}
         />
       )}
     </div>
