@@ -514,6 +514,22 @@ export const stockApi = {
   },
 };
 
+// Helper function to generate ALTER TABLE SQL for missing columns
+export const generateAlterTableSQL = (tableName: string, missingColumns: string[]): string => {
+  const schema = REQUIRED_SCHEMA[tableName as keyof typeof REQUIRED_SCHEMA];
+  if (!schema) return "";
+
+  const alterStatements = missingColumns.map((colName) => {
+    const colDef = schema.columns.find((c) => c.name.toLowerCase() === colName.toLowerCase());
+    if (!colDef) return null;
+    return `ADD COLUMN ${colDef.name} ${colDef.type}`;
+  }).filter(Boolean);
+
+  if (alterStatements.length === 0) return "";
+
+  return `ALTER TABLE ${tableName}\n  ${alterStatements.join(",\n  ")};`;
+};
+
 // Required schema for the POS system
 export const REQUIRED_SCHEMA = {
   products: {
