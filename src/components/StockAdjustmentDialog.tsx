@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { Product } from "@/types/product";
 import { Button } from "@/components/ui/button";
-import { X, Plus, Minus, Package } from "lucide-react";
+import { X, Package, Truck } from "lucide-react";
+
+export interface RestockData {
+  quantity: number;
+  supplier: string;
+  unitCost: number;
+  notes: string;
+}
 
 interface StockAdjustmentDialogProps {
   product: Product;
-  onConfirm: (type: 'add' | 'remove' | 'set', quantity: number, reason: string) => void;
+  onConfirm: (type: 'add' | 'remove' | 'set', quantity: number, reason: string, restockData?: RestockData) => void;
   onCancel: () => void;
 }
 
@@ -14,21 +21,30 @@ export function StockAdjustmentDialog({
   onConfirm,
   onCancel,
 }: StockAdjustmentDialogProps) {
-  const [adjustmentType, setAdjustmentType] = useState<'add' | 'remove' | 'set'>('add');
   const [quantity, setQuantity] = useState(1);
-  const [reason, setReason] = useState("");
+  const [supplier, setSupplier] = useState("");
+  const [unitCost, setUnitCost] = useState("");
+  const [notes, setNotes] = useState("");
 
   const currentStock = product.stock_quantity ?? 0;
-  
-  const getNewStock = () => {
-    if (adjustmentType === 'add') return currentStock + quantity;
-    if (adjustmentType === 'remove') return Math.max(0, currentStock - quantity);
-    return quantity; // set
-  };
+  const newStock = currentStock + quantity;
+  const totalCost = unitCost ? quantity * parseFloat(unitCost) : 0;
 
   const handleSubmit = () => {
-    if (quantity <= 0 && adjustmentType !== 'set') return;
-    onConfirm(adjustmentType, quantity, reason);
+    if (quantity <= 0) return;
+    
+    const restockData: RestockData = {
+      quantity,
+      supplier: supplier.trim(),
+      unitCost: parseFloat(unitCost) || 0,
+      notes: notes.trim(),
+    };
+    
+    const reason = supplier 
+      ? `Restock from ${supplier}${unitCost ? ` @ ₱${parseFloat(unitCost).toFixed(2)}/unit` : ''}`
+      : 'Restock';
+    
+    onConfirm('add', quantity, reason, restockData);
   };
 
   return (
@@ -36,11 +52,11 @@ export function StockAdjustmentDialog({
       <div className="glass-panel rounded-xl p-6 max-w-md w-full mx-4 animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-lg">
-              <Package className="w-5 h-5 text-primary" />
+            <div className="p-2 bg-success/20 rounded-lg">
+              <Truck className="w-5 h-5 text-success" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-foreground">Adjust Stock</h2>
+              <h2 className="text-lg font-bold text-foreground">Restock Product</h2>
               <p className="text-sm text-muted-foreground">{product.name}</p>
             </div>
           </div>
@@ -53,84 +69,87 @@ export function StockAdjustmentDialog({
           {/* Current Stock Display */}
           <div className="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
             <span className="text-muted-foreground">Current Stock</span>
-            <span className="text-xl font-bold text-foreground">{currentStock}</span>
-          </div>
-
-          {/* Adjustment Type Tabs */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setAdjustmentType('add')}
-              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                adjustmentType === 'add'
-                  ? 'bg-success/20 text-success border border-success/30'
-                  : 'bg-secondary/30 text-muted-foreground hover:bg-secondary/50'
-              }`}
-            >
-              <Plus className="w-4 h-4 inline mr-1" />
-              Add
-            </button>
-            <button
-              onClick={() => setAdjustmentType('remove')}
-              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                adjustmentType === 'remove'
-                  ? 'bg-destructive/20 text-destructive border border-destructive/30'
-                  : 'bg-secondary/30 text-muted-foreground hover:bg-secondary/50'
-              }`}
-            >
-              <Minus className="w-4 h-4 inline mr-1" />
-              Remove
-            </button>
-            <button
-              onClick={() => setAdjustmentType('set')}
-              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-                adjustmentType === 'set'
-                  ? 'bg-primary/20 text-primary border border-primary/30'
-                  : 'bg-secondary/30 text-muted-foreground hover:bg-secondary/50'
-              }`}
-            >
-              Set
-            </button>
+            <span className={`text-xl font-bold ${
+              currentStock <= (product.low_stock_threshold ?? 5)
+                ? 'text-destructive'
+                : 'text-foreground'
+            }`}>{currentStock}</span>
           </div>
 
           {/* Quantity Input */}
           <div>
             <label className="text-sm text-muted-foreground block mb-2">
-              {adjustmentType === 'set' ? 'New Stock Level' : 'Quantity'}
+              Quantity to Add
             </label>
             <input
               type="number"
               value={quantity}
-              onChange={(e) => setQuantity(Math.max(0, parseInt(e.target.value) || 0))}
-              min="0"
+              onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+              min="1"
               className="w-full px-4 py-3 bg-input rounded-lg text-foreground text-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
               autoFocus
             />
           </div>
 
-          {/* Reason Input */}
+          {/* Supplier Input */}
           <div>
             <label className="text-sm text-muted-foreground block mb-2">
-              Reason (optional)
+              Supplier
             </label>
             <input
               type="text"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g., Received shipment, Damaged goods..."
+              value={supplier}
+              onChange={(e) => setSupplier(e.target.value)}
+              placeholder="e.g., ABC Distributors, Local Market..."
               className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
           </div>
 
-          {/* New Stock Preview */}
-          <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg border border-primary/20">
-            <span className="text-muted-foreground">New Stock</span>
-            <span className={`text-xl font-bold ${
-              getNewStock() <= (product.low_stock_threshold ?? 5)
-                ? 'text-destructive'
-                : 'text-success'
-            }`}>
-              {getNewStock()}
-            </span>
+          {/* Unit Cost Input */}
+          <div>
+            <label className="text-sm text-muted-foreground block mb-2">
+              Unit Cost (Purchase Price)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
+              <input
+                type="number"
+                value={unitCost}
+                onChange={(e) => setUnitCost(e.target.value)}
+                placeholder="0.00"
+                step="0.01"
+                min="0"
+                className="w-full pl-8 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          </div>
+
+          {/* Notes Input */}
+          <div>
+            <label className="text-sm text-muted-foreground block mb-2">
+              Notes (optional)
+            </label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Invoice #, batch number, expiry date..."
+              className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Summary */}
+          <div className="space-y-2 p-3 bg-success/10 rounded-lg border border-success/20">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">New Stock</span>
+              <span className="text-xl font-bold text-success">{newStock}</span>
+            </div>
+            {totalCost > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Total Cost</span>
+                <span className="font-medium text-foreground">₱{totalCost.toFixed(2)}</span>
+              </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -139,11 +158,12 @@ export function StockAdjustmentDialog({
               Cancel
             </Button>
             <Button 
-              className="flex-1" 
+              className="flex-1 bg-success hover:bg-success/90" 
               onClick={handleSubmit}
-              disabled={quantity <= 0 && adjustmentType !== 'set'}
+              disabled={quantity <= 0}
             >
-              Confirm
+              <Package className="w-4 h-4 mr-2" />
+              Restock
             </Button>
           </div>
         </div>
