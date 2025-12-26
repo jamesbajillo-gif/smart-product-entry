@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Product, OrderItem } from "@/types/product";
 import { PaymentDetails } from "@/components/PaymentDialog";
 import {
@@ -6,16 +6,82 @@ import {
   salesApi,
   quantityHistoryApi,
   checkApiConnection,
+  SaleRecord,
 } from "@/services/mysqlApi";
 import { initialProducts } from "@/data/products";
 
 type QuantityHistory = Record<string, number[]>;
+
+interface PendingSale {
+  id: string;
+  data: Omit<SaleRecord, "id" | "created_at"> & { created_at: string };
+  quantityUpdates: { productId: string; quantities: number[] }[];
+  createdAt: number;
+}
+
+const PENDING_SALES_KEY = "pos-pending-sales";
+
+// Load pending sales from localStorage
+const loadPendingSales = (): PendingSale[] => {
+  try {
+    const stored = localStorage.getItem(PENDING_SALES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+// Save pending sales to localStorage
+const savePendingSales = (sales: PendingSale[]) => {
+  localStorage.setItem(PENDING_SALES_KEY, JSON.stringify(sales));
+};
 
 export function useMySQLSync() {
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [quantityHistory, setQuantityHistory] = useState<QuantityHistory>({});
   const [isOnline, setIsOnline] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingSales, setPendingSales] = useState<PendingSale[]>(loadPendingSales);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync pending sales to server
+  const syncPendingSales = useCallback(async () => {
+    const pending = loadPendingSales();
+    if (pending.length === 0 || isSyncing) return;
+
+    const connected = await checkApiConnection();
+    if (!connected) return;
+
+    setIsSyncing(true);
+    const successfulIds: string[] = [];
+
+    for (const sale of pending) {
+      try {
+        // Upload sale
+        const result = await salesApi.create(sale.data);
+        if (result.success) {
+          // Upload quantity history updates
+          for (const update of sale.quantityUpdates) {
+            await quantityHistoryApi.upsert(update.productId, update.quantities);
+          }
+          successfulIds.push(sale.id);
+        }
+      } catch (error) {
+        console.error("Failed to sync sale:", error);
+      }
+    }
+
+    // Remove successfully synced sales
+    if (successfulIds.length > 0) {
+      const remaining = pending.filter((s) => !successfulIds.includes(s.id));
+      savePendingSales(remaining);
+      setPendingSales(remaining);
+      console.log(`Synced ${successfulIds.length} pending sale(s)`);
+    }
+
+    setIsSyncing(false);
+  }, [isSyncing]);
 
   // Check API connection and load initial data
   useEffect(() => {
@@ -25,6 +91,9 @@ export function useMySQLSync() {
       setIsOnline(connected);
 
       if (connected) {
+        // Try to sync pending sales first
+        await syncPendingSales();
+
         // Load products from DB
         const productsResult = await productsApi.getAll();
         if (productsResult.success && productsResult.data && productsResult.data.length > 0) {
@@ -68,6 +137,30 @@ export function useMySQLSync() {
 
     init();
   }, []);
+
+  // Periodic connection check and sync (every 30 seconds)
+  useEffect(() => {
+    const checkAndSync = async () => {
+      const connected = await checkApiConnection();
+      const wasOffline = !isOnline;
+      setIsOnline(connected);
+
+      if (connected && wasOffline) {
+        console.log("Connection restored, syncing pending sales...");
+        await syncPendingSales();
+      } else if (connected && pendingSales.length > 0) {
+        await syncPendingSales();
+      }
+    };
+
+    syncIntervalRef.current = setInterval(checkAndSync, 30000);
+
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+      }
+    };
+  }, [isOnline, pendingSales.length, syncPendingSales]);
 
   // Save to session storage as fallback
   useEffect(() => {
@@ -121,29 +214,60 @@ export function useMySQLSync() {
         payment_method: paymentDetails.method,
         amount_tendered: paymentDetails.amountTendered,
         change_amount: paymentDetails.change,
+        created_at: new Date().toISOString(),
       };
 
-      if (isOnline) {
-        await salesApi.create(saleData);
-      }
-
-      // Update quantity history
+      // Update quantity history locally
       const newHistory = { ...quantityHistory };
+      const quantityUpdates: { productId: string; quantities: number[] }[] = [];
+
       for (const item of orderItems) {
         const existing = newHistory[item.product.id] || [];
         newHistory[item.product.id] = [...existing, item.quantity].slice(-10);
-
-        if (isOnline) {
-          await quantityHistoryApi.upsert(
-            item.product.id,
-            newHistory[item.product.id]
-          );
-        }
+        quantityUpdates.push({
+          productId: item.product.id,
+          quantities: newHistory[item.product.id],
+        });
       }
       setQuantityHistory(newHistory);
+
+      if (isOnline) {
+        try {
+          const result = await salesApi.create(saleData);
+          if (result.success) {
+            // Update quantity history in DB
+            for (const update of quantityUpdates) {
+              await quantityHistoryApi.upsert(update.productId, update.quantities);
+            }
+            return;
+          }
+        } catch (error) {
+          console.error("Failed to record sale online:", error);
+        }
+      }
+
+      // Store in pending queue for later sync
+      const pendingSale: PendingSale = {
+        id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        data: saleData,
+        quantityUpdates,
+        createdAt: Date.now(),
+      };
+
+      const updatedPending = [...pendingSales, pendingSale];
+      savePendingSales(updatedPending);
+      setPendingSales(updatedPending);
+      console.log("Sale queued for sync:", pendingSale.id);
     },
-    [isOnline, quantityHistory]
+    [isOnline, quantityHistory, pendingSales]
   );
+
+  // Manual sync trigger
+  const triggerSync = useCallback(async () => {
+    if (pendingSales.length === 0) return false;
+    await syncPendingSales();
+    return true;
+  }, [pendingSales.length, syncPendingSales]);
 
   // Check if product should show qty dialog
   const shouldShowQtyDialog = useCallback(
@@ -163,5 +287,8 @@ export function useMySQLSync() {
     shouldShowQtyDialog,
     isOnline,
     isLoading,
+    pendingSalesCount: pendingSales.length,
+    isSyncing,
+    triggerSync,
   };
 }
