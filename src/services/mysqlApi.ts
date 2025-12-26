@@ -7,7 +7,7 @@ const formatMySQLDateTime = (date: Date): string => {
 };
 
 // Default API URL - can be overridden via localStorage
-const DEFAULT_API_URL = "http://api.techpinoy.net/mysql/api.php";
+const DEFAULT_API_URL = "https://api.techpinoy.net/mysql/api.php";
 
 // Allow manual override via localStorage
 const getApiUrl = (): string => {
