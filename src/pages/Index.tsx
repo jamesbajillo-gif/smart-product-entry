@@ -11,7 +11,7 @@ import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Terminal, Wifi, WifiOff, Receipt, Package } from "lucide-react";
+import { Terminal, Wifi, WifiOff, Receipt, Package, CloudOff, RefreshCw } from "lucide-react";
 
 const Index = () => {
   const {
@@ -21,6 +21,9 @@ const Index = () => {
     shouldShowQtyDialog,
     isOnline,
     isLoading,
+    pendingSalesCount,
+    isSyncing,
+    triggerSync,
   } = useMySQLSync();
 
   const [orderItems, setOrderItems] = useSessionStorage<OrderItem[]>("pos-order", []);
@@ -188,10 +191,29 @@ const Index = () => {
                 <Terminal className="w-6 h-6 text-primary" />
               </div>
               <h1 className="text-3xl font-bold text-foreground">QuickPOS</h1>
-              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${isOnline ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'}`}>
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${isOnline ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
                 {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
                 {isOnline ? 'Online' : 'Offline'}
               </div>
+              {pendingSalesCount > 0 && (
+                <button
+                  onClick={triggerSync}
+                  disabled={isSyncing}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-colors ${
+                    isSyncing 
+                      ? 'bg-muted text-muted-foreground' 
+                      : 'bg-warning/20 text-warning hover:bg-warning/30'
+                  }`}
+                  title={`${pendingSalesCount} pending sale(s) - Click to sync`}
+                >
+                  {isSyncing ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <CloudOff className="w-3 h-3" />
+                  )}
+                  {pendingSalesCount} pending
+                </button>
+              )}
               <div className="ml-auto flex gap-2">
                 <Link to="/products">
                   <Button variant="outline" size="sm" className="gap-2">
