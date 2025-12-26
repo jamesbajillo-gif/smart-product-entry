@@ -2,15 +2,15 @@ import { useRef } from "react";
 import { OrderItem } from "@/types/product";
 import { X, Printer, CheckCircle, Banknote, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PaymentMethod } from "./PaymentDialog";
+import { PaymentDetails } from "./PaymentDialog";
 
 interface ReceiptDialogProps {
   items: OrderItem[];
-  paymentMethod: PaymentMethod;
+  paymentDetails: PaymentDetails;
   onClose: () => void;
 }
 
-export function ReceiptDialog({ items, paymentMethod, onClose }: ReceiptDialogProps) {
+export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -119,17 +119,31 @@ export function ReceiptDialog({ items, paymentMethod, onClose }: ReceiptDialogPr
             <span className="text-primary">₱{total.toFixed(2)}</span>
           </div>
 
-          <div className="flex items-center justify-center gap-2 mt-3 py-2 bg-secondary/50 rounded-lg">
-            {paymentMethod === "cash" ? (
-              <>
-                <Banknote className="w-4 h-4 text-success" />
-                <span className="text-sm text-foreground">Paid with Cash</span>
-              </>
-            ) : (
-              <>
-                <Smartphone className="w-4 h-4 text-info" />
-                <span className="text-sm text-foreground">Paid via GCash</span>
-              </>
+          <div className="space-y-2 mt-3 py-2 px-3 bg-secondary/50 rounded-lg">
+            <div className="flex items-center justify-center gap-2">
+              {paymentDetails.method === "cash" ? (
+                <>
+                  <Banknote className="w-4 h-4 text-success" />
+                  <span className="text-sm text-foreground">Paid with Cash</span>
+                </>
+              ) : (
+                <>
+                  <Smartphone className="w-4 h-4 text-info" />
+                  <span className="text-sm text-foreground">Paid via GCash</span>
+                </>
+              )}
+            </div>
+            {paymentDetails.method === "cash" && paymentDetails.amountTendered && (
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tendered</span>
+                  <span className="text-foreground">₱{paymentDetails.amountTendered.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Change</span>
+                  <span className="text-success font-semibold">₱{paymentDetails.change?.toFixed(2)}</span>
+                </div>
+              </div>
             )}
           </div>
 
