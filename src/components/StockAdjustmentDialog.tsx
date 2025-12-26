@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Product } from "@/types/product";
 import { Button } from "@/components/ui/button";
-import { X, Package, Truck, Box, Cigarette } from "lucide-react";
+import { X, Package, Truck, Box, Layers } from "lucide-react";
 
 export interface RestockData {
   quantity: number;
@@ -10,90 +10,17 @@ export interface RestockData {
   notes: string;
   packagingType?: string;
   packagingCount?: number;
+  packagePrice?: number;
 }
 
-interface PackagingConfig {
-  type: string;
-  label: string;
-  unitsPerPackage: number;
-  icon: React.ReactNode;
-}
+type PackagingType = 'case' | 'pack' | 'box';
+type RestockMode = 'pieces' | 'bulk';
 
-// Detect product packaging type based on name
-const getPackagingConfig = (productName: string): PackagingConfig | null => {
-  const name = productName.toLowerCase();
-  
-  // Zesto products - per box (typically 12 per box)
-  if (name.includes('zesto')) {
-    return {
-      type: 'box',
-      label: 'Box',
-      unitsPerPackage: 12,
-      icon: <Box className="w-4 h-4" />,
-    };
-  }
-  
-  // Coca Cola products - per case (varies by size)
-  if (name.includes('coca cola') || name.includes('coke') || name.includes('coca-cola')) {
-    // Larger sizes have fewer per case
-    if (name.includes('1.5') || name.includes('1.5l') || name.includes('2l') || name.includes('1l')) {
-      return {
-        type: 'case',
-        label: 'Case',
-        unitsPerPackage: 6,
-        icon: <Box className="w-4 h-4" />,
-      };
-    }
-    if (name.includes('500ml') || name.includes('500')) {
-      return {
-        type: 'case',
-        label: 'Case',
-        unitsPerPackage: 12,
-        icon: <Box className="w-4 h-4" />,
-      };
-    }
-    // Default for cans or small bottles
-    return {
-      type: 'case',
-      label: 'Case',
-      unitsPerPackage: 24,
-      icon: <Box className="w-4 h-4" />,
-    };
-  }
-  
-  // Other sodas/drinks - generic case
-  if (name.includes('sprite') || name.includes('fanta') || name.includes('royal') || 
-      name.includes('pepsi') || name.includes('mountain dew') || name.includes('mirinda')) {
-    if (name.includes('1.5') || name.includes('1l') || name.includes('2l')) {
-      return {
-        type: 'case',
-        label: 'Case',
-        unitsPerPackage: 6,
-        icon: <Box className="w-4 h-4" />,
-      };
-    }
-    return {
-      type: 'case',
-      label: 'Case',
-      unitsPerPackage: 24,
-      icon: <Box className="w-4 h-4" />,
-    };
-  }
-  
-  // Cigarettes - per pack (20 sticks per pack, 10 packs per carton)
-  if (name.includes('cigarette') || name.includes('marlboro') || name.includes('fortune') || 
-      name.includes('philip morris') || name.includes('camel') || name.includes('winston') ||
-      name.includes('hope') || name.includes('mighty')) {
-    return {
-      type: 'ream',
-      label: 'Ream (10 packs)',
-      unitsPerPackage: 10, // 10 packs per ream
-      icon: <Cigarette className="w-4 h-4" />,
-    };
-  }
-  
-  return null;
-};
+const PACKAGING_OPTIONS: { value: PackagingType; label: string }[] = [
+  { value: 'case', label: 'Case' },
+  { value: 'pack', label: 'Pack' },
+  { value: 'box', label: 'Box' },
+];
 
 interface StockAdjustmentDialogProps {
   product: Product;
@@ -106,48 +33,59 @@ export function StockAdjustmentDialog({
   onConfirm,
   onCancel,
 }: StockAdjustmentDialogProps) {
-  const packagingConfig = useMemo(() => getPackagingConfig(product.name), [product.name]);
-  
-  const [usePackaging, setUsePackaging] = useState(!!packagingConfig);
+  const [mode, setMode] = useState<RestockMode>('pieces');
+  const [packagingType, setPackagingType] = useState<PackagingType>('case');
   const [packageCount, setPackageCount] = useState(1);
-  const [manualQuantity, setManualQuantity] = useState(packagingConfig?.unitsPerPackage ?? 1);
+  const [unitsPerPackage, setUnitsPerPackage] = useState(12);
+  const [packagePrice, setPackagePrice] = useState("");
+  const [piecesQuantity, setPiecesQuantity] = useState(1);
+  const [piecePrice, setPiecePrice] = useState("");
   const [supplier, setSupplier] = useState("");
-  const [unitCost, setUnitCost] = useState("");
   const [notes, setNotes] = useState("");
 
-  // Auto-calculate quantity when package count changes
-  useEffect(() => {
-    if (usePackaging && packagingConfig) {
-      setManualQuantity(packageCount * packagingConfig.unitsPerPackage);
-    }
-  }, [packageCount, usePackaging, packagingConfig]);
+  // Calculate totals based on mode
+  const quantity = mode === 'bulk' 
+    ? packageCount * unitsPerPackage 
+    : piecesQuantity;
+  
+  const unitCost = mode === 'bulk' && packagePrice
+    ? parseFloat(packagePrice) / unitsPerPackage
+    : parseFloat(piecePrice) || 0;
+  
+  const totalCost = mode === 'bulk' && packagePrice
+    ? packageCount * parseFloat(packagePrice)
+    : piecesQuantity * (parseFloat(piecePrice) || 0);
 
   const currentStock = product.stock_quantity ?? 0;
-  const quantity = manualQuantity;
   const newStock = currentStock + quantity;
-  const totalCost = unitCost ? quantity * parseFloat(unitCost) : 0;
 
   const handleSubmit = () => {
     if (quantity <= 0) return;
     
-    const packagingNote = usePackaging && packagingConfig 
-      ? `${packageCount} ${packagingConfig.label}(s) × ${packagingConfig.unitsPerPackage} = ${quantity} units`
+    const packagingNote = mode === 'bulk'
+      ? `${packageCount} ${packagingType}(s) × ${unitsPerPackage} = ${quantity} pcs`
       : '';
     
     const restockData: RestockData = {
       quantity,
       supplier: supplier.trim(),
-      unitCost: parseFloat(unitCost) || 0,
+      unitCost,
       notes: [notes.trim(), packagingNote].filter(Boolean).join(' | '),
-      packagingType: usePackaging ? packagingConfig?.type : undefined,
-      packagingCount: usePackaging ? packageCount : undefined,
+      packagingType: mode === 'bulk' ? packagingType : undefined,
+      packagingCount: mode === 'bulk' ? packageCount : undefined,
+      packagePrice: mode === 'bulk' ? parseFloat(packagePrice) || 0 : undefined,
     };
     
     const reason = supplier 
-      ? `Restock from ${supplier}${unitCost ? ` @ ₱${parseFloat(unitCost).toFixed(2)}/unit` : ''}`
-      : 'Restock';
+      ? `Restock from ${supplier}${mode === 'bulk' ? ` (${packageCount} ${packagingType}s)` : ''}`
+      : `Restock${mode === 'bulk' ? ` (${packageCount} ${packagingType}s)` : ''}`;
     
     onConfirm('add', quantity, reason, restockData);
+  };
+
+  const getPackagingLabel = () => {
+    const option = PACKAGING_OPTIONS.find(o => o.value === packagingType);
+    return option?.label || 'Package';
   };
 
   return (
@@ -179,82 +117,171 @@ export function StockAdjustmentDialog({
             }`}>{currentStock}</span>
           </div>
 
-          {/* Packaging Toggle (if applicable) */}
-          {packagingConfig && (
-            <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  {packagingConfig.icon}
-                  <span className="font-medium text-foreground">
-                    Use {packagingConfig.label} Count
-                  </span>
-                </div>
-                <button
-                  onClick={() => setUsePackaging(!usePackaging)}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
-                    usePackaging ? 'bg-primary' : 'bg-secondary'
-                  }`}
-                >
-                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                    usePackaging ? 'translate-x-7' : 'translate-x-1'
-                  }`} />
-                </button>
+          {/* Mode Toggle: Pieces vs Bulk */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setMode('pieces')}
+              className={`flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition-colors ${
+                mode === 'pieces'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+              }`}
+            >
+              <Package className="w-4 h-4" />
+              Pieces
+            </button>
+            <button
+              onClick={() => setMode('bulk')}
+              className={`flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition-colors ${
+                mode === 'bulk'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              Bulk
+            </button>
+          </div>
+
+          {/* PIECES MODE */}
+          {mode === 'pieces' && (
+            <>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-2">
+                  Quantity (pieces)
+                </label>
+                <input
+                  type="number"
+                  value={piecesQuantity}
+                  onChange={(e) => setPiecesQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  min="1"
+                  className="w-full px-4 py-3 bg-input rounded-lg text-foreground text-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  autoFocus
+                />
               </div>
               
-              {usePackaging && (
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground block">
-                    Number of {packagingConfig.label}s ({packagingConfig.unitsPerPackage} units each)
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPackageCount(Math.max(1, packageCount - 1))}
-                      className="p-2 bg-secondary rounded-lg hover:bg-secondary/80"
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      value={packageCount}
-                      onChange={(e) => setPackageCount(Math.max(1, parseInt(e.target.value) || 1))}
-                      min="1"
-                      className="flex-1 px-4 py-2 bg-input rounded-lg text-foreground text-center text-lg font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                    <button
-                      onClick={() => setPackageCount(packageCount + 1)}
-                      className="p-2 bg-secondary rounded-lg hover:bg-secondary/80"
-                    >
-                      +
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    = {packageCount * packagingConfig.unitsPerPackage} units total
-                  </p>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-2">
+                  Price per piece
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
+                  <input
+                    type="number"
+                    value={piecePrice}
+                    onChange={(e) => setPiecePrice(e.target.value)}
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
                 </div>
-              )}
-            </div>
+              </div>
+            </>
           )}
 
-          {/* Quantity Input (manual or override) */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm text-muted-foreground">
-                {usePackaging && packagingConfig ? 'Total Quantity (override if needed)' : 'Quantity to Add'}
-              </label>
-              {usePackaging && packagingConfig && (
-                <span className="text-xs text-muted-foreground">
-                  Auto: {packageCount * packagingConfig.unitsPerPackage}
-                </span>
-              )}
-            </div>
-            <input
-              type="number"
-              value={manualQuantity}
-              onChange={(e) => setManualQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-              min="1"
-              className="w-full px-4 py-3 bg-input rounded-lg text-foreground text-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
+          {/* BULK MODE */}
+          {mode === 'bulk' && (
+            <>
+              {/* Packaging Type Selection */}
+              <div>
+                <label className="text-sm text-muted-foreground block mb-2">
+                  Packaging Type
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {PACKAGING_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setPackagingType(option.value)}
+                      className={`p-2 rounded-lg text-sm font-medium transition-colors ${
+                        packagingType === option.value
+                          ? 'bg-primary/20 text-primary border border-primary/30'
+                          : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Number of Packages */}
+              <div>
+                <label className="text-sm text-muted-foreground block mb-2">
+                  Number of {getPackagingLabel()}s
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPackageCount(Math.max(1, packageCount - 1))}
+                    className="p-3 bg-secondary rounded-lg hover:bg-secondary/80 text-lg font-bold"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    value={packageCount}
+                    onChange={(e) => setPackageCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    min="1"
+                    className="flex-1 px-4 py-3 bg-input rounded-lg text-foreground text-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <button
+                    onClick={() => setPackageCount(packageCount + 1)}
+                    className="p-3 bg-secondary rounded-lg hover:bg-secondary/80 text-lg font-bold"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Units per Package */}
+              <div>
+                <label className="text-sm text-muted-foreground block mb-2">
+                  Pieces per {getPackagingLabel()}
+                </label>
+                <input
+                  type="number"
+                  value={unitsPerPackage}
+                  onChange={(e) => setUnitsPerPackage(Math.max(1, parseInt(e.target.value) || 1))}
+                  min="1"
+                  className="w-full px-4 py-2 bg-input rounded-lg text-foreground text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+
+              {/* Package Price */}
+              <div>
+                <label className="text-sm text-muted-foreground block mb-2">
+                  Price per {getPackagingLabel()}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
+                  <input
+                    type="number"
+                    value={packagePrice}
+                    onChange={(e) => setPackagePrice(e.target.value)}
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                    className="w-full pl-8 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                {packagePrice && parseFloat(packagePrice) > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    = ₱{(parseFloat(packagePrice) / unitsPerPackage).toFixed(2)} per piece
+                  </p>
+                )}
+              </div>
+
+              {/* Auto-calculated Total */}
+              <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Total Pieces</span>
+                  <span className="text-lg font-bold text-primary">
+                    {packageCount} × {unitsPerPackage} = {quantity} pcs
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Supplier Input */}
           <div>
@@ -268,25 +295,6 @@ export function StockAdjustmentDialog({
               placeholder="e.g., ABC Distributors, Local Market..."
               className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
-          </div>
-
-          {/* Unit Cost Input */}
-          <div>
-            <label className="text-sm text-muted-foreground block mb-2">
-              Unit Cost (Purchase Price per piece)
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
-              <input
-                type="number"
-                value={unitCost}
-                onChange={(e) => setUnitCost(e.target.value)}
-                placeholder="0.00"
-                step="0.01"
-                min="0"
-                className="w-full pl-8 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
           </div>
 
           {/* Notes Input */}
@@ -307,17 +315,28 @@ export function StockAdjustmentDialog({
           <div className="space-y-2 p-3 bg-success/10 rounded-lg border border-success/20">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Adding</span>
-              <span className="text-lg font-bold text-success">+{quantity} units</span>
+              <span className="text-lg font-bold text-success">+{quantity} pieces</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">New Stock</span>
               <span className="text-xl font-bold text-success">{newStock}</span>
             </div>
             {totalCost > 0 && (
-              <div className="flex items-center justify-between text-sm border-t border-success/20 pt-2 mt-2">
-                <span className="text-muted-foreground">Total Cost</span>
-                <span className="font-medium text-foreground">₱{totalCost.toFixed(2)}</span>
-              </div>
+              <>
+                <div className="border-t border-success/20 pt-2 mt-2">
+                  {mode === 'bulk' && packagePrice && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        {packageCount} {getPackagingLabel()}(s) @ ₱{parseFloat(packagePrice).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total Cost</span>
+                    <span className="font-bold text-foreground">₱{totalCost.toFixed(2)}</span>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
