@@ -4,7 +4,7 @@ import { stockApi } from "@/services/mysqlApi";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { Product, PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
 import { Button } from "@/components/ui/button";
-import { StockAdjustmentDialog } from "@/components/StockAdjustmentDialog";
+import { StockAdjustmentDialog, RestockData } from "@/components/StockAdjustmentDialog";
 import { StockHistoryDialog } from "@/components/StockHistoryDialog";
 import {
   ArrowLeft,
@@ -20,13 +20,13 @@ import {
   Filter,
   CheckSquare,
   Square,
-  Minus,
   Image,
   AlertTriangle,
   History,
   Wifi,
   WifiOff,
   Database,
+  Truck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { initialProducts } from "@/data/products";
@@ -206,31 +206,12 @@ export default function ProductManagement() {
     setEditLowStockThreshold("");
   };
 
-  // Quick stock adjustment (+1 or -1)
-  const handleQuickStockAdjust = async (product: Product, delta: number) => {
-    const currentStock = product.stock_quantity ?? 0;
-    const newStock = Math.max(0, currentStock + delta);
-    
-    const result = await stockApi.adjustStock(
-      product.id,
-      delta > 0 ? 'add' : 'remove',
-      Math.abs(delta),
-      currentStock,
-      'Quick adjustment'
-    );
-
-    if (result.success) {
-      await updateProduct(product.id, { stock_quantity: newStock });
-    } else {
-      toast({ title: "Error", description: "Failed to adjust stock" });
-    }
-  };
-
-  // Full stock adjustment from dialog
-  const handleStockAdjustConfirm = async (
+  // Restock from dialog
+  const handleRestockConfirm = async (
     type: 'add' | 'remove' | 'set',
     quantity: number,
-    reason: string
+    reason: string,
+    restockData?: RestockData
   ) => {
     if (!stockAdjustProduct) return;
 
@@ -244,15 +225,14 @@ export default function ProductManagement() {
     );
 
     if (result.success) {
-      let newStock = currentStock;
-      if (type === 'add') newStock = currentStock + quantity;
-      else if (type === 'remove') newStock = Math.max(0, currentStock - quantity);
-      else if (type === 'set') newStock = quantity;
-      
+      const newStock = currentStock + quantity;
       await updateProduct(stockAdjustProduct.id, { stock_quantity: newStock });
-      toast({ title: "Success", description: "Stock adjusted successfully" });
+      toast({ 
+        title: "Stock Updated", 
+        description: `Added ${quantity} units to ${stockAdjustProduct.name}` 
+      });
     } else {
-      toast({ title: "Error", description: "Failed to adjust stock" });
+      toast({ title: "Error", description: "Failed to update stock" });
     }
     setStockAdjustProduct(null);
   };
@@ -707,32 +687,23 @@ export default function ProductManagement() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => handleQuickStockAdjust(product, -1)}
-                                    disabled={!isOnline || (product.stock_quantity ?? 0) === 0}
-                                    className="p-1 rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
-                                  >
-                                    <Minus className="w-3 h-3" />
-                                  </button>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium min-w-[60px] text-center ${getStockBg(product)} ${getStockColor(product)}`}>
+                                    {product.stock_quantity ?? 0}
+                                  </span>
                                   <button
                                     onClick={() => setStockAdjustProduct(product)}
-                                    className={`px-2 py-1 rounded-full text-xs font-medium min-w-[60px] ${getStockBg(product)} ${getStockColor(product)}`}
-                                  >
-                                    {product.stock_quantity ?? 0}
-                                  </button>
-                                  <button
-                                    onClick={() => handleQuickStockAdjust(product, 1)}
                                     disabled={!isOnline}
-                                    className="p-1 rounded bg-secondary hover:bg-secondary/80 disabled:opacity-50"
+                                    className="p-1.5 rounded bg-success/20 hover:bg-success/30 text-success disabled:opacity-50 transition-colors"
+                                    title="Restock"
                                   >
-                                    <Plus className="w-3 h-3" />
+                                    <Truck className="w-4 h-4" />
                                   </button>
                                   <button
                                     onClick={() => setStockHistoryProduct(product)}
-                                    className="p-1 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground"
+                                    className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground transition-colors"
                                     title="View history"
                                   >
-                                    <History className="w-3 h-3" />
+                                    <History className="w-4 h-4" />
                                   </button>
                                 </div>
                               )}
@@ -839,7 +810,7 @@ export default function ProductManagement() {
         <StockAdjustmentDialog
           product={stockAdjustProduct}
           onCancel={() => setStockAdjustProduct(null)}
-          onConfirm={handleStockAdjustConfirm}
+          onConfirm={handleRestockConfirm}
         />
       )}
 
