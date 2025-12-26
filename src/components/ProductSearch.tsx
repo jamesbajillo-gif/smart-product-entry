@@ -8,6 +8,7 @@ interface ProductSearchProps {
   onSearchChange: (query: string) => void;
   onProductSelect: (product: Product) => void;
   onAddNewProduct: (name: string) => void;
+  onCheckout: () => void;
 }
 
 export function ProductSearch({
@@ -16,6 +17,7 @@ export function ProductSearch({
   onSearchChange,
   onProductSelect,
   onAddNewProduct,
+  onCheckout,
 }: ProductSearchProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -67,7 +69,9 @@ export function ProductSearch({
           break;
         case "Enter":
           e.preventDefault();
-          if (showAddNew) {
+          if (!searchQuery) {
+            onCheckout();
+          } else if (showAddNew) {
             onAddNewProduct(searchQuery);
           } else if (filteredProducts[selectedIndex]) {
             onProductSelect(filteredProducts[selectedIndex]);

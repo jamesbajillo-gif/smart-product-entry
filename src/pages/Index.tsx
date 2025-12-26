@@ -89,6 +89,22 @@ const Index = () => {
     });
   }, [toast]);
 
+  const handleCheckout = useCallback(() => {
+    if (orderItems.length === 0) {
+      toast({
+        title: "Cart is empty",
+        description: "Add items before checkout",
+      });
+      return;
+    }
+    const total = orderItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+    toast({
+      title: "Checkout complete",
+      description: `Total: ₱${total.toFixed(2)}`,
+    });
+    setOrderItems([]);
+  }, [orderItems, toast]);
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto h-[calc(100vh-3rem)] flex gap-6">
@@ -116,6 +132,7 @@ const Index = () => {
                 onSearchChange={setSearchQuery}
                 onProductSelect={handleProductSelect}
                 onAddNewProduct={handleAddNewProduct}
+                onCheckout={handleCheckout}
               />
             </div>
           </div>
