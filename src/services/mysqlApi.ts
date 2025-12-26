@@ -348,13 +348,30 @@ export const databaseApi = {
 
   // Describe table structure
   describeTable: async (tableName: string) => {
-    const result = await apiRequest<{
-      table: string;
-      columns: TableColumn[];
-      primary_keys: string[];
-      column_count: number;
-    }>("GET", { action: "describe", table: tableName });
-    return result;
+    const apiUrl = getApiUrl();
+    try {
+      const response = await fetch(`${apiUrl}?action=describe&table=${tableName}`);
+      const result = await response.json();
+      // The API returns columns at the top level, not under data
+      if (result.success && result.columns) {
+        return {
+          success: true,
+          data: {
+            table: result.table,
+            columns: result.columns as TableColumn[],
+            primary_keys: result.primary_keys || [],
+            column_count: result.column_count || result.columns.length,
+          },
+        };
+      }
+      return { success: false, error: result.error || "Failed to describe table" };
+    } catch (error) {
+      console.error("Describe table error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to describe table",
+      };
+    }
   },
 
   // Execute custom query (SELECT only)

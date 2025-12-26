@@ -105,14 +105,31 @@ export default function DatabaseSetup() {
 
       if (exists) {
         const describeResult = await databaseApi.describeTable(schema.tableName);
+        console.log(`Describe ${schema.tableName}:`, describeResult);
+        
         if (describeResult.success && describeResult.data) {
-          columns = describeResult.data.columns || [];
-          const existingColumnNames = columns.map((c) => c.Field.toLowerCase());
+          // Handle both array and object response formats
+          const rawColumns = Array.isArray(describeResult.data) 
+            ? describeResult.data 
+            : describeResult.data.columns || [];
+          
+          columns = rawColumns as TableColumn[];
+          
+          // Get existing column names - handle both 'Field' and 'field' casing
+          const existingColumnNames = columns.map((c) => {
+            const fieldName = c.Field || (c as unknown as { field: string }).field || '';
+            return fieldName.toLowerCase();
+          });
+          
+          console.log(`Existing columns in ${schema.tableName}:`, existingColumnNames);
+          console.log(`Required columns:`, schema.columns.map(c => c.name));
 
           // Check for missing columns
           missingColumns = schema.columns
             .filter((col) => !existingColumnNames.includes(col.name.toLowerCase()))
             .map((col) => col.name);
+          
+          console.log(`Missing columns in ${schema.tableName}:`, missingColumns);
         }
       }
 
