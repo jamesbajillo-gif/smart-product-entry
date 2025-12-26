@@ -1,14 +1,16 @@
 import { useRef } from "react";
 import { OrderItem } from "@/types/product";
-import { X, Printer, CheckCircle } from "lucide-react";
+import { X, Printer, CheckCircle, Banknote, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PaymentMethod } from "./PaymentDialog";
 
 interface ReceiptDialogProps {
   items: OrderItem[];
+  paymentMethod: PaymentMethod;
   onClose: () => void;
 }
 
-export function ReceiptDialog({ items, onClose }: ReceiptDialogProps) {
+export function ReceiptDialog({ items, paymentMethod, onClose }: ReceiptDialogProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -115,6 +117,20 @@ export function ReceiptDialog({ items, onClose }: ReceiptDialogProps) {
           <div className="total flex justify-between text-lg font-bold text-foreground">
             <span>TOTAL</span>
             <span className="text-primary">₱{total.toFixed(2)}</span>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 mt-3 py-2 bg-secondary/50 rounded-lg">
+            {paymentMethod === "cash" ? (
+              <>
+                <Banknote className="w-4 h-4 text-success" />
+                <span className="text-sm text-foreground">Paid with Cash</span>
+              </>
+            ) : (
+              <>
+                <Smartphone className="w-4 h-4 text-info" />
+                <span className="text-sm text-foreground">Paid via GCash</span>
+              </>
+            )}
           </div>
 
           <div className="footer text-center mt-4 text-muted-foreground text-xs">
