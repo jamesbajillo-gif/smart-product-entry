@@ -136,7 +136,7 @@ export default function DatabaseSetup() {
     );
 
     try {
-      const result = await databaseApi.createTable(schema.createSQL);
+      const result = await databaseApi.createTable(schema.tableName, schema.createSQL);
 
       if (result.success) {
         toast({

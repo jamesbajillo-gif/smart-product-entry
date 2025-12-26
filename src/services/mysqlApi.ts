@@ -282,10 +282,28 @@ export const databaseApi = {
     return result;
   },
 
-  // Create table using raw SQL
-  createTable: async (createTableSQL: string) => {
-    const result = await apiRequest<unknown>("POST", { action: "query", query: createTableSQL });
-    return result;
+  // Create table using the dedicated create_table endpoint
+  createTable: async (tableName: string, createTableSQL: string) => {
+    const apiUrl = getApiUrl();
+    try {
+      const response = await fetch(`${apiUrl}?action=create_table`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          table: tableName,
+          sql: createTableSQL,
+          if_not_exists: true,
+        }),
+      });
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error("Create table error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to create table",
+      };
+    }
   },
 };
 
