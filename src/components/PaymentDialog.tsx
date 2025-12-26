@@ -21,7 +21,7 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
   const [amountTendered, setAmountTendered] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const numericAmount = parseFloat(amountTendered) || 0;
+  const numericAmount = amountTendered ? parseFloat(amountTendered) || 0 : total;
   const change = numericAmount - total;
   const isValidCashAmount = numericAmount >= total;
 
