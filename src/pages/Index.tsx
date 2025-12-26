@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Product, OrderItem, ProductCategory } from "@/types/product";
 import { OrderSidebar } from "@/components/OrderSidebar";
@@ -142,6 +142,28 @@ const Index = () => {
     setReceiptItems(null);
     setReceiptPayment(null);
   }, []);
+
+  // Global Enter key to trigger checkout when nothing is focused
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        const activeElement = document.activeElement;
+        const isInputFocused = activeElement instanceof HTMLInputElement ||
+          activeElement instanceof HTMLTextAreaElement ||
+          activeElement instanceof HTMLButtonElement ||
+          activeElement?.getAttribute("role") === "button";
+        
+        // Only trigger checkout if no input/button is focused and no dialogs are open
+        if (!isInputFocused && !showPayment && !receiptItems && !selectedProduct && !newProductName) {
+          e.preventDefault();
+          handleCheckout();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showPayment, receiptItems, selectedProduct, newProductName, handleCheckout]);
 
   if (isLoading) {
     return (
