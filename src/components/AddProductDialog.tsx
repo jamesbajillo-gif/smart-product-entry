@@ -34,7 +34,8 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
+    // Only handle escape on the container level
+    if (e.key === "Escape" && e.target === e.currentTarget) {
       onCancel();
     }
   };
@@ -102,17 +103,18 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                 </span>
                 <input
                   ref={priceInputRef}
-                  type="text"
-                  inputMode="decimal"
-                  pattern="[0-9]*\.?[0-9]*"
+                  type="number"
+                  step="0.01"
+                  min="0"
                   value={price}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "" || /^\d*\.?\d*$/.test(val)) {
-                      setPrice(val);
+                  onChange={(e) => setPrice(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Allow all number keys, backspace, delete, tab, enter, arrows, and decimal
+                    if (e.key === "Escape") {
+                      onCancel();
                     }
                   }}
-                  className="w-full pl-7 pr-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="w-full pl-7 pr-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="0.00"
                 />
               </div>
@@ -122,17 +124,17 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                 Initial Stock
               </label>
               <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
+                type="number"
+                step="1"
+                min="0"
                 value={stockQuantity}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === "" || /^\d*$/.test(val)) {
-                    setStockQuantity(val);
+                onChange={(e) => setStockQuantity(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    onCancel();
                   }
                 }}
-                className="w-full px-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="w-full px-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 placeholder="0"
               />
             </div>
