@@ -49,7 +49,7 @@ const Index = () => {
 
       toast({
         title: "Added to order",
-        description: `${quantity}× ${selectedProduct.name} ($${(selectedProduct.price * quantity).toFixed(2)})`,
+        description: `${quantity}× ${selectedProduct.name} (₱${(selectedProduct.price * quantity).toFixed(2)})`,
       });
 
       setSelectedProduct(null);
@@ -71,7 +71,7 @@ const Index = () => {
 
       toast({
         title: "Product added",
-        description: `${name} - $${price.toFixed(2)}`,
+        description: `${name} - ₱${price.toFixed(2)}`,
       });
     },
     [toast]

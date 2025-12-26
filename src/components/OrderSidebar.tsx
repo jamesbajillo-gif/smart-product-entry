@@ -42,12 +42,12 @@ export function OrderSidebar({ items, onRemoveItem, onClearOrder }: OrderSidebar
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-foreground truncate">{item.product.name}</p>
                 <p className="text-sm text-muted-foreground">
-                  ${item.product.price.toFixed(2)} × {item.quantity}
+                  ₱{item.product.price.toFixed(2)} × {item.quantity}
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-mono font-semibold text-primary">
-                  ${(item.product.price * item.quantity).toFixed(2)}
+                  ₱{(item.product.price * item.quantity).toFixed(2)}
                 </span>
                 <button
                   onClick={() => onRemoveItem(item.product.id)}
@@ -65,7 +65,7 @@ export function OrderSidebar({ items, onRemoveItem, onClearOrder }: OrderSidebar
         <div className="flex items-center justify-between">
           <span className="text-lg font-medium text-muted-foreground">Total</span>
           <span className="text-2xl font-bold font-mono text-primary glow-success">
-            ${total.toFixed(2)}
+            ₱{total.toFixed(2)}
           </span>
         </div>
         

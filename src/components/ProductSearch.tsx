@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Product } from "@/types/product";
-import { Search, Plus, DollarSign } from "lucide-react";
+import { Search, Plus } from "lucide-react";
 
 interface ProductSearchProps {
   products: Product[];
@@ -118,10 +118,9 @@ export function ProductSearch({
               }`}
             >
               <span className="font-medium text-foreground">{product.name}</span>
-              <div className="flex items-center gap-2 text-primary font-mono font-semibold">
-                <DollarSign className="w-4 h-4" />
-                {product.price.toFixed(2)}
-              </div>
+              <span className="text-primary font-mono font-semibold">
+                ₱{product.price.toFixed(2)}
+              </span>
             </button>
           ))}
 
