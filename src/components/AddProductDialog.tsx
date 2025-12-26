@@ -1,21 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import { X, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
 
 interface AddProductDialogProps {
   productName: string;
-  onConfirm: (name: string, price: number) => void;
+  onConfirm: (name: string, price: number, category?: ProductCategory) => void;
   onCancel: () => void;
 }
 
 export function AddProductDialog({ productName, onConfirm, onCancel }: AddProductDialogProps) {
   const [name, setName] = useState(productName);
   const [price, setPrice] = useState("");
+  const [category, setCategory] = useState<ProductCategory>("Other");
   const priceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setName(productName);
     setPrice("");
+    setCategory("Other");
     setTimeout(() => priceInputRef.current?.focus(), 50);
   }, [productName]);
 
@@ -23,7 +26,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
     e.preventDefault();
     const numericPrice = parseFloat(price);
     if (name.trim() && numericPrice > 0) {
-      onConfirm(name.trim(), numericPrice);
+      onConfirm(name.trim(), numericPrice, category);
     }
   };
 
@@ -66,6 +69,23 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
               className="w-full px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               placeholder="Enter product name"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
+              Category
+            </label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value as ProductCategory)}
+              className="w-full px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              {PRODUCT_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>

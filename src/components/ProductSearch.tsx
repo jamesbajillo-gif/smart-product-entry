@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Product } from "@/types/product";
-import { Search, Plus } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Product, PRODUCT_CATEGORIES } from "@/types/product";
+import { Search, Plus, Tag } from "lucide-react";
 
 interface ProductSearchProps {
   products: Product[];
@@ -26,6 +26,34 @@ export function ProductSearch({
   const filteredProducts = products.filter((product) =>
     product.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Group products by category
+  const groupedProducts = useMemo(() => {
+    const groups: Record<string, Product[]> = {};
+    
+    filteredProducts.forEach((product) => {
+      const category = product.category || "Other";
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+      groups[category].push(product);
+    });
+
+    // Sort categories according to PRODUCT_CATEGORIES order
+    const sortedGroups: { category: string; products: Product[] }[] = [];
+    PRODUCT_CATEGORIES.forEach((cat) => {
+      if (groups[cat]) {
+        sortedGroups.push({ category: cat, products: groups[cat] });
+      }
+    });
+
+    return sortedGroups;
+  }, [filteredProducts]);
+
+  // Flatten for keyboard navigation
+  const flatProducts = useMemo(() => {
+    return groupedProducts.flatMap((g) => g.products);
+  }, [groupedProducts]);
 
   const showAddNew = searchQuery.length > 0 && filteredProducts.length === 0;
 
@@ -56,7 +84,7 @@ export function ProductSearch({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const maxIndex = showAddNew ? 0 : filteredProducts.length - 1;
+      const maxIndex = showAddNew ? 0 : flatProducts.length - 1;
 
       switch (e.key) {
         case "ArrowDown":
@@ -73,8 +101,8 @@ export function ProductSearch({
             onCheckout();
           } else if (showAddNew) {
             onAddNewProduct(searchQuery);
-          } else if (filteredProducts[selectedIndex]) {
-            onProductSelect(filteredProducts[selectedIndex]);
+          } else if (flatProducts[selectedIndex]) {
+            onProductSelect(flatProducts[selectedIndex]);
           }
           break;
         case "Escape":
@@ -82,14 +110,19 @@ export function ProductSearch({
           break;
       }
     },
-    [filteredProducts, selectedIndex, showAddNew, searchQuery, onProductSelect, onAddNewProduct, onSearchChange]
+    [flatProducts, selectedIndex, showAddNew, searchQuery, onProductSelect, onAddNewProduct, onSearchChange, onCheckout]
   );
 
   // Scroll selected item into view
   useEffect(() => {
-    const selectedElement = listRef.current?.children[selectedIndex] as HTMLElement;
+    const selectedElement = listRef.current?.querySelector(`[data-index="${selectedIndex}"]`) as HTMLElement;
     selectedElement?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
+
+  // Get flat index for a product
+  const getFlatIndex = (product: Product) => {
+    return flatProducts.findIndex((p) => p.id === product.id);
+  };
 
   return (
     <div className="glass-panel rounded-lg p-6 glow-primary">
@@ -109,23 +142,37 @@ export function ProductSearch({
       {searchQuery && (
         <div
           ref={listRef}
-          className="mt-4 max-h-[400px] overflow-auto space-y-1 animate-slide-up"
+          className="mt-4 max-h-[400px] overflow-auto space-y-4 animate-slide-up"
         >
-          {filteredProducts.map((product, index) => (
-            <button
-              key={product.id}
-              onClick={() => onProductSelect(product)}
-              className={`w-full flex items-center justify-between p-4 rounded-lg transition-all ${
-                index === selectedIndex
-                  ? "bg-primary/20 border border-primary/50"
-                  : "bg-secondary/50 hover:bg-secondary border border-transparent"
-              }`}
-            >
-              <span className="font-medium text-foreground">{product.name}</span>
-              <span className="text-primary font-mono font-semibold">
-                ₱{product.price.toFixed(2)}
-              </span>
-            </button>
+          {groupedProducts.map(({ category, products: categoryProducts }) => (
+            <div key={category}>
+              <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Tag className="w-3 h-3" />
+                {category}
+              </div>
+              <div className="space-y-1">
+                {categoryProducts.map((product) => {
+                  const flatIndex = getFlatIndex(product);
+                  return (
+                    <button
+                      key={product.id}
+                      data-index={flatIndex}
+                      onClick={() => onProductSelect(product)}
+                      className={`w-full flex items-center justify-between p-4 rounded-lg transition-all ${
+                        flatIndex === selectedIndex
+                          ? "bg-primary/20 border border-primary/50"
+                          : "bg-secondary/50 hover:bg-secondary border border-transparent"
+                      }`}
+                    >
+                      <span className="font-medium text-foreground">{product.name}</span>
+                      <span className="text-primary font-mono font-semibold">
+                        ₱{product.price.toFixed(2)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           ))}
 
           {showAddNew && (
