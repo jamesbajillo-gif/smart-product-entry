@@ -204,20 +204,86 @@ export function useMySQLSync() {
           name: product.name,
           price: product.price,
           category: product.category,
+          image_url: product.image_url,
+          stock_quantity: product.stock_quantity ?? 0,
+          low_stock_threshold: product.low_stock_threshold ?? 5,
         });
         if (result.success && result.id) {
           const newProduct = { ...product, id: String(result.id) };
           setProducts((prev) => [...prev, newProduct]);
-          return newProduct;
+          return { success: true, product: newProduct };
         }
+        return { success: false, error: result.error };
       }
       // Fallback to local
       const newProduct = { ...product, id: Date.now().toString() };
       setProducts((prev) => [...prev, newProduct]);
-      return newProduct;
+      return { success: true, product: newProduct };
     },
     [isOnline]
   );
+
+  // Update product
+  const updateProduct = useCallback(
+    async (id: string, data: Partial<Product>) => {
+      if (isOnline) {
+        const result = await productsApi.update(id, data);
+        if (result.success) {
+          setProducts((prev) =>
+            prev.map((p) => (p.id === id ? { ...p, ...data } : p))
+          );
+          return { success: true };
+        }
+        return { success: false, error: result.error };
+      }
+      // Local-only update when offline
+      setProducts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, ...data } : p))
+      );
+      return { success: true };
+    },
+    [isOnline]
+  );
+
+  // Delete product
+  const deleteProduct = useCallback(
+    async (id: string) => {
+      if (isOnline) {
+        const result = await productsApi.delete(id);
+        if (result.success) {
+          setProducts((prev) => prev.filter((p) => p.id !== id));
+          return { success: true };
+        }
+        return { success: false, error: result.error };
+      }
+      return { success: false, error: "Cannot delete while offline" };
+    },
+    [isOnline]
+  );
+
+  // Refresh products from database
+  const refreshProducts = useCallback(async () => {
+    const connected = await checkApiConnection();
+    setIsOnline(connected);
+
+    if (connected) {
+      const productsResult = await productsApi.getAll();
+      if (productsResult.success && productsResult.data) {
+        const dbProducts = productsResult.data.map((p) => ({
+          id: String(p.id),
+          name: p.name,
+          price: Number(p.price),
+          category: p.category as Product["category"],
+          image_url: p.image_url || undefined,
+          stock_quantity: p.stock_quantity ?? 0,
+          low_stock_threshold: p.low_stock_threshold ?? 5,
+        }));
+        setProducts(dbProducts);
+        return { success: true, count: dbProducts.length };
+      }
+    }
+    return { success: false, count: products.length };
+  }, [products.length]);
 
   // Record sale
   const recordSale = useCallback(
@@ -327,6 +393,9 @@ export function useMySQLSync() {
     products,
     setProducts,
     addProduct,
+    updateProduct,
+    deleteProduct,
+    refreshProducts,
     recordSale,
     shouldShowQtyDialog,
     isOnline,

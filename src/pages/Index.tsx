@@ -101,14 +101,15 @@ const Index = () => {
 
   const handleNewProductConfirm = useCallback(
     async (name: string, price: number, category?: ProductCategory) => {
-      const newProduct = await addProduct({ name, price, category });
+      const result = await addProduct({ name, price, category });
       setNewProductName(null);
-      setSelectedProduct(newProduct);
-
-      toast({
-        title: "Product added",
-        description: `${name} - ₱${price.toFixed(2)}`,
-      });
+      if (result.success && result.product) {
+        setSelectedProduct(result.product);
+        toast({
+          title: "Product added",
+          description: `${name} - ₱${price.toFixed(2)}`,
+        });
+      }
     },
     [addProduct, toast]
   );
