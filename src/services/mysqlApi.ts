@@ -152,13 +152,35 @@ export interface SaleRecord {
   created_at?: string;
 }
 
+export interface SalesFilters {
+  limit?: number;
+  offset?: number;
+  dateFrom?: string; // MySQL format: YYYY-MM-DD HH:MM:SS
+  dateTo?: string;
+}
+
 export const salesApi = {
-  getAll: async (limit = 100) => {
+  getAll: async (filters: SalesFilters = {}) => {
+    const { limit = 100, offset = 0, dateFrom, dateTo } = filters;
+    
+    // Build filter object for API
+    const apiFilters: Record<string, string | number> = {};
+    
+    // Use MySQL API's comparison operators for date filtering
+    if (dateFrom) {
+      apiFilters["created_at__gte"] = dateFrom;
+    }
+    if (dateTo) {
+      apiFilters["created_at__lte"] = dateTo;
+    }
+    
     const result = await apiRequest<SaleRecord[]>("GET", {
       table: "sales",
       limit,
+      offset,
       order_by: "created_at",
       order_dir: "DESC",
+      filters: apiFilters,
     });
     return result;
   },
