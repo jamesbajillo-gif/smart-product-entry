@@ -98,11 +98,17 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
               </span>
               <input
                 ref={priceInputRef}
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
+                inputMode="decimal"
+                pattern="[0-9]*\.?[0-9]*"
                 value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  // Only allow numbers and one decimal point
+                  if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                    setPrice(val);
+                  }
+                }}
                 className="w-full pl-8 pr-4 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
                 placeholder="0.00"
               />
