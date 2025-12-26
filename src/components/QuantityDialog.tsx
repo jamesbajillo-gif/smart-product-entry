@@ -63,7 +63,7 @@ export function QuantityDialog({ product, onConfirm, onCancel }: QuantityDialogP
         <div className="mb-6 p-4 bg-secondary/50 rounded-lg">
           <p className="text-lg font-medium text-foreground">{product.name}</p>
           <p className="text-2xl font-bold font-mono text-primary mt-1">
-            ${product.price.toFixed(2)}
+            ₱{product.price.toFixed(2)}
           </p>
         </div>
 
@@ -104,7 +104,7 @@ export function QuantityDialog({ product, onConfirm, onCancel }: QuantityDialogP
           <div className="flex items-center justify-between p-4 bg-primary/10 rounded-lg border border-primary/30">
             <span className="text-muted-foreground">Subtotal</span>
             <span className="text-2xl font-bold font-mono text-primary">
-              ${total.toFixed(2)}
+              ₱{total.toFixed(2)}
             </span>
           </div>
 
