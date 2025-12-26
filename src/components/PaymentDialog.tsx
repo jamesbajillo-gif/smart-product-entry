@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Banknote, Smartphone, Check, Delete } from "lucide-react";
+import { X, Banknote, Smartphone, Check, Delete, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export type PaymentMethod = "cash" | "gcash";
@@ -154,14 +154,19 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
                   min={total}
                   step="0.01"
                   value={amountTendered}
-                  onChange={(e) => {
-                    setAmountTendered(e.target.value);
-                    setShowNumpad(true);
-                  }}
-                  onFocus={() => setShowNumpad(true)}
+                  onChange={(e) => setAmountTendered(e.target.value)}
                   placeholder={total.toFixed(2)}
-                  className="w-full pl-10 pr-4 py-4 bg-input rounded-lg text-2xl font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                  className="w-full pl-10 pr-12 py-4 bg-input rounded-lg text-2xl font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowNumpad(!showNumpad)}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${
+                    showNumpad ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  <Calculator className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
