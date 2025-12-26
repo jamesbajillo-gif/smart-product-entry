@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { OrderItem } from "@/types/product";
 import { X, CheckCircle, Banknote, Smartphone, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,18 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
       onClose();
     }, 1500);
   };
+
+  // Enter key to submit
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && !isSubmitted) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSubmitted]);
 
   if (isSubmitted) {
     return (
