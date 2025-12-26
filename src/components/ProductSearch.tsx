@@ -12,6 +12,8 @@ interface ProductSearchProps {
 }
 
 const getStockStatus = (product: Product) => {
+  // Skip stock tracking products are always "ok"
+  if (product.skip_stock_tracking) return 'ok';
   const stock = product.stock_quantity ?? 0;
   const threshold = product.low_stock_threshold ?? 5;
   if (stock === 0) return 'out';

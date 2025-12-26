@@ -57,22 +57,25 @@ const Index = () => {
   }, [setOrderItems]);
 
   const handleProductSelect = useCallback((product: Product) => {
-    const stock = product.stock_quantity ?? 0;
-    const threshold = product.low_stock_threshold ?? 5;
-    
-    // Warn if out of stock (but still allow adding)
-    if (stock === 0) {
-      toast({
-        title: "Out of Stock",
-        description: `${product.name} is currently out of stock`,
-        variant: "destructive",
-      });
-    } else if (stock <= threshold) {
-      // Warn if low stock
-      toast({
-        title: "Low Stock Warning",
-        description: `Only ${stock} ${product.name} left in stock`,
-      });
+    // Skip stock warnings for "always available" products
+    if (!product.skip_stock_tracking) {
+      const stock = product.stock_quantity ?? 0;
+      const threshold = product.low_stock_threshold ?? 5;
+      
+      // Warn if out of stock (but still allow adding)
+      if (stock === 0) {
+        toast({
+          title: "Out of Stock",
+          description: `${product.name} is currently out of stock`,
+          variant: "destructive",
+        });
+      } else if (stock <= threshold) {
+        // Warn if low stock
+        toast({
+          title: "Low Stock Warning",
+          description: `Only ${stock} ${product.name} left in stock`,
+        });
+      }
     }
     
     if (shouldShowQtyDialog(product.id)) {

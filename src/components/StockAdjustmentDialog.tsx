@@ -110,11 +110,15 @@ export function StockAdjustmentDialog({
           {/* Current Stock Display */}
           <div className="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
             <span className="text-muted-foreground">Current Stock</span>
-            <span className={`text-xl font-bold ${
-              currentStock <= (product.low_stock_threshold ?? 5)
-                ? 'text-destructive'
-                : 'text-foreground'
-            }`}>{currentStock}</span>
+            {product.skip_stock_tracking ? (
+              <span className="text-xl font-bold text-success">∞ Always Available</span>
+            ) : (
+              <span className={`text-xl font-bold ${
+                currentStock <= (product.low_stock_threshold ?? 5)
+                  ? 'text-destructive'
+                  : 'text-foreground'
+              }`}>{currentStock}</span>
+            )}
           </div>
 
           {/* Mode Toggle: Pieces vs Bulk */}
