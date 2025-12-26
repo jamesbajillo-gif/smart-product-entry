@@ -17,8 +17,13 @@ export function OrderSidebar({ items, onRemoveItem, onUpdateQuantity, onClearOrd
     <aside className="w-80 glass-panel rounded-lg flex flex-col h-full">
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-primary/20 rounded-lg">
+          <div className="relative p-2 bg-primary/20 rounded-lg">
             <ShoppingCart className="w-5 h-5 text-primary" />
+            {itemCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 flex items-center justify-center px-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-full animate-scale-in">
+                {itemCount}
+              </span>
+            )}
           </div>
           <div>
             <h2 className="font-semibold text-foreground">Current Order</h2>
