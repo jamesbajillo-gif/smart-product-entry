@@ -11,7 +11,7 @@ import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Terminal, Wifi, WifiOff, Receipt } from "lucide-react";
+import { Terminal, Wifi, WifiOff, Receipt, Package } from "lucide-react";
 
 const Index = () => {
   const {
@@ -170,12 +170,20 @@ const Index = () => {
                 {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
                 {isOnline ? 'Online' : 'Offline'}
               </div>
-              <Link to="/sales" className="ml-auto">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Receipt className="w-4 h-4" />
-                  Sales History
-                </Button>
-              </Link>
+              <div className="ml-auto flex gap-2">
+                <Link to="/products">
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <Package className="w-4 h-4" />
+                    Products
+                  </Button>
+                </Link>
+                <Link to="/sales">
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <Receipt className="w-4 h-4" />
+                    Sales
+                  </Button>
+                </Link>
+              </div>
             </div>
             <p className="text-muted-foreground">
               Fast product search with auto-complete
