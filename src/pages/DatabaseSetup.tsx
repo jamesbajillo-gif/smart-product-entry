@@ -20,6 +20,9 @@ import {
   Plus,
   Loader2,
   Settings,
+  Copy,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -29,6 +32,7 @@ interface TableStatus {
   columns: TableColumn[];
   missingColumns: string[];
   isCreating: boolean;
+  createError?: string;
 }
 
 export default function DatabaseSetup() {
@@ -128,7 +132,7 @@ export default function DatabaseSetup() {
     if (!schema) return;
 
     setTableStatuses((prev) =>
-      prev.map((t) => (t.name === tableName ? { ...t, isCreating: true } : t))
+      prev.map((t) => (t.name === tableName ? { ...t, isCreating: true, createError: undefined } : t))
     );
 
     try {
@@ -142,16 +146,24 @@ export default function DatabaseSetup() {
         // Refresh table status
         await checkConnection();
       } else {
+        const errorMsg = result.message || result.error || `Failed to create table "${tableName}"`;
+        setTableStatuses((prev) =>
+          prev.map((t) => (t.name === tableName ? { ...t, createError: errorMsg } : t))
+        );
         toast({
           title: "Error",
-          description: result.error || `Failed to create table "${tableName}"`,
+          description: errorMsg,
           variant: "destructive",
         });
       }
     } catch (error) {
+      const errorMsg = `Failed to create table "${tableName}"`;
+      setTableStatuses((prev) =>
+        prev.map((t) => (t.name === tableName ? { ...t, createError: errorMsg } : t))
+      );
       toast({
         title: "Error",
-        description: `Failed to create table "${tableName}"`,
+        description: errorMsg,
         variant: "destructive",
       });
     }
@@ -160,6 +172,8 @@ export default function DatabaseSetup() {
       prev.map((t) => (t.name === tableName ? { ...t, isCreating: false } : t))
     );
   };
+
+  const [showSqlInstructions, setShowSqlInstructions] = useState(false);
 
   const createAllTables = async () => {
     const tablesToCreate = tableStatuses.filter((t) => !t.exists);
@@ -318,18 +332,63 @@ export default function DatabaseSetup() {
         {/* Required Tables */}
         {isConnected && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
                 <Table className="w-5 h-5" />
                 Required Tables
               </h2>
-              {someTablesMissing && (
-                <Button size="sm" className="gap-2" onClick={createAllTables}>
-                  <Plus className="w-4 h-4" />
-                  Create All Missing Tables
-                </Button>
-              )}
+              <div className="flex gap-2">
+                {someTablesMissing && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setShowSqlInstructions(!showSqlInstructions)}
+                    >
+                      {showSqlInstructions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      Show SQL
+                    </Button>
+                    <Button size="sm" className="gap-2" onClick={createAllTables}>
+                      <Plus className="w-4 h-4" />
+                      Create All Missing Tables
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
+
+            {/* SQL Instructions Panel */}
+            {showSqlInstructions && someTablesMissing && (
+              <div className="glass-panel rounded-lg p-4 bg-secondary/30">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-foreground">Manual SQL Creation</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => {
+                      const allSql = Object.values(REQUIRED_SCHEMA)
+                        .map((s) => s.createSQL)
+                        .join(";\n\n");
+                      navigator.clipboard.writeText(allSql);
+                      toast({ title: "Copied!", description: "All SQL statements copied to clipboard" });
+                    }}
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy All SQL
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  The API only allows SELECT queries. Run these statements directly on your MySQL server:
+                </p>
+                <pre className="text-xs bg-secondary p-3 rounded overflow-x-auto text-foreground whitespace-pre-wrap">
+                  {Object.values(REQUIRED_SCHEMA)
+                    .map((s) => s.createSQL)
+                    .join(";\n\n")}
+                </pre>
+              </div>
+            )}
 
             {allTablesExist && (
               <div className="flex items-center gap-2 p-3 bg-green-500/10 rounded-lg text-green-500">
@@ -419,6 +478,37 @@ export default function DatabaseSetup() {
                     <div className="mt-3 p-2 bg-yellow-500/10 rounded text-yellow-500 text-sm">
                       <AlertTriangle className="w-4 h-4 inline mr-2" />
                       Missing columns: {table.missingColumns.join(", ")}
+                    </div>
+                  )}
+
+                  {/* Show create error with SQL instructions */}
+                  {table.createError && (
+                    <div className="mt-3 p-3 bg-destructive/10 rounded text-sm">
+                      <div className="flex items-start gap-2 text-destructive mb-2">
+                        <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <span>{table.createError}</span>
+                      </div>
+                      <div className="text-muted-foreground text-xs">
+                        The API only allows SELECT queries. Create this table manually using the SQL below.
+                      </div>
+                      <div className="mt-2 relative">
+                        <pre className="text-xs bg-secondary/50 p-2 rounded overflow-x-auto text-foreground">
+                          {REQUIRED_SCHEMA[table.name as keyof typeof REQUIRED_SCHEMA]?.createSQL}
+                        </pre>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute top-1 right-1 h-6 w-6 p-0"
+                          onClick={() => {
+                            navigator.clipboard.writeText(
+                              REQUIRED_SCHEMA[table.name as keyof typeof REQUIRED_SCHEMA]?.createSQL || ""
+                            );
+                            toast({ title: "Copied!", description: "SQL copied to clipboard" });
+                          }}
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
