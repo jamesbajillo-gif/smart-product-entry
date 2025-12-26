@@ -13,7 +13,8 @@ interface AddExpenseDialogProps {
 }
 
 export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDialogProps) {
-  const [quantity, setQuantity] = useState("1");
+  const isIceTube = product.name.toUpperCase().includes("ICE TUBE");
+  const [quantity, setQuantity] = useState(isIceTube ? "1" : "1");
   const [unitCost, setUnitCost] = useState("");
   const [supplier, setSupplier] = useState("");
   const [notes, setNotes] = useState("");
@@ -23,6 +24,7 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const quantityRef = useRef<HTMLInputElement>(null);
+  const unitCostRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -35,8 +37,13 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
       setIsLoading(false);
     };
     loadSuppliers();
-    quantityRef.current?.focus();
-  }, []);
+    // For Ice Tube, focus on unit cost; otherwise focus on quantity
+    if (isIceTube) {
+      unitCostRef.current?.focus();
+    } else {
+      quantityRef.current?.focus();
+    }
+  }, [isIceTube]);
 
   const isTableMissingError = (error: string | undefined): boolean => {
     if (!error) return false;
@@ -47,25 +54,36 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
             lowerError.includes("not found"));
   };
 
-  const totalCost = (parseFloat(quantity) || 0) * (parseFloat(unitCost) || 0);
+  // For Ice Tube, quantity is always 1 (transactional count)
+  const effectiveQuantity = isIceTube ? 1 : (parseFloat(quantity) || 0);
+  const totalCost = effectiveQuantity * (parseFloat(unitCost) || 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!quantity || !unitCost) {
-      toast({ title: "Error", description: "Please fill in quantity and unit cost", variant: "destructive" });
+    // For Ice Tube, quantity is always 1 (transactional count)
+    const finalQuantity = isIceTube ? 1 : parseInt(quantity) || 0;
+    
+    if (!unitCost) {
+      toast({ title: "Error", description: "Please fill in unit cost", variant: "destructive" });
+      return;
+    }
+    
+    if (!isIceTube && !quantity) {
+      toast({ title: "Error", description: "Please fill in quantity", variant: "destructive" });
       return;
     }
 
     const selectedSupplier = showNewSupplier ? newSupplier.trim() : supplier;
+    const finalTotalCost = finalQuantity * parseFloat(unitCost);
 
     setIsSaving(true);
     const result = await expensesApi.create({
       product_id: product.id,
       product_name: product.name,
-      quantity: parseInt(quantity),
+      quantity: finalQuantity,
       unit_cost: parseFloat(unitCost),
-      total_cost: totalCost,
+      total_cost: finalTotalCost,
       supplier: selectedSupplier || undefined,
       notes: notes.trim() || undefined,
     });
@@ -112,22 +130,33 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Quantity & Unit Cost */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-2">
-                Quantity
-              </label>
-              <input
-                ref={quantityRef}
-                type="number"
-                min="1"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                className="w-full px-4 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
-                placeholder="1"
-              />
+          {/* For Ice Tube: Show info message and hide quantity field */}
+          {isIceTube && (
+            <div className="p-3 bg-info/10 rounded-lg border border-info/30">
+              <p className="text-sm text-info font-medium">
+                Ice Tube expenses are recorded as transactions with count of 1
+              </p>
             </div>
+          )}
+          
+          {/* Quantity & Unit Cost */}
+          <div className={`grid gap-4 ${isIceTube ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            {!isIceTube && (
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-2">
+                  Quantity
+                </label>
+                <input
+                  ref={quantityRef}
+                  type="number"
+                  min="1"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  className="w-full px-4 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  placeholder="1"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Unit Cost
@@ -137,6 +166,7 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
                   ₱
                 </span>
                 <input
+                  ref={unitCostRef}
                   type="number"
                   step="0.01"
                   min="0"
@@ -151,7 +181,12 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
 
           {/* Total Cost Display */}
           <div className="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
-            <span className="text-muted-foreground">Total Cost</span>
+            <div className="flex flex-col">
+              <span className="text-muted-foreground">Total Cost</span>
+              {isIceTube && (
+                <span className="text-xs text-muted-foreground">(Quantity: 1 transaction)</span>
+              )}
+            </div>
             <span className="text-xl font-bold text-primary font-mono">
               ₱{totalCost.toFixed(2)}
             </span>
@@ -242,7 +277,7 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
             <Button
               type="submit"
               className="flex-1 glow-primary"
-              disabled={isSaving || !quantity || !unitCost}
+              disabled={isSaving || !unitCost || (!isIceTube && !quantity)}
             >
               {isSaving ? (
                 <>

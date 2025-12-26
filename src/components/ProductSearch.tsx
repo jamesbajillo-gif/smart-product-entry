@@ -244,7 +244,9 @@ export function ProductSearch({
                           id: `${product.id}-${v.id || v.name}`,
                           name: displayName,
                           price: v.price, 
-                          stock_quantity: v.stock_quantity 
+                          stock_quantity: v.stock_quantity,
+                          // Use base product's image_url for variations (variations don't have their own thumbnails)
+                          image_url: product.image_url
                         }, 
                         isVariation: true, 
                         variation: v 
@@ -272,18 +274,24 @@ export function ProductSearch({
                         } ${itemStockStatus === 'out' ? 'opacity-60' : ''} ${item.isVariation ? 'ml-4 border-l-2 border-primary/30' : ''}`}
                       >
                         <div className="flex items-center gap-3">
-                          {product.image_url ? (
-                            <img
-                              src={product.image_url}
-                              alt={itemProduct.name}
-                              className="w-10 h-10 object-cover rounded-lg"
-                              onError={(e) => (e.currentTarget.style.display = 'none')}
-                            />
-                          ) : (
-                            <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
-                              <Package className="w-5 h-5 text-muted-foreground/50" />
-                            </div>
-                          )}
+                          {/* For variations, use base product's image_url; for base product, use its own image_url */}
+                          {(() => {
+                            const imageUrl = item.isVariation 
+                              ? product.image_url  // Variations use base product's thumbnail
+                              : itemProduct.image_url; // Base product uses its own thumbnail
+                            return imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={itemProduct.name}
+                                className="w-10 h-10 object-cover rounded-lg"
+                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                              />
+                            ) : (
+                              <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
+                                <Package className="w-5 h-5 text-muted-foreground/50" />
+                              </div>
+                            );
+                          })()}
                           <div className="text-left">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-foreground">{itemProduct.name}</span>
