@@ -99,13 +99,22 @@ const Index = () => {
 
   const handleNewProductConfirm = useCallback(
     async (name: string, price: number, category?: ProductCategory, stockQuantity?: number) => {
-      const result = await addProduct({ 
-        name, 
-        price, 
-        category,
-        stock_quantity: stockQuantity ?? 0,
-        low_stock_threshold: 5,
-      });
+      // Build product data - only include stock fields if provided
+      const productData: {
+        name: string;
+        price: number;
+        category?: ProductCategory;
+        stock_quantity?: number;
+        low_stock_threshold?: number;
+      } = { name, price, category };
+      
+      // Only add stock fields if user explicitly entered a value
+      if (stockQuantity !== undefined && stockQuantity > 0) {
+        productData.stock_quantity = stockQuantity;
+        productData.low_stock_threshold = 5;
+      }
+      
+      const result = await addProduct(productData);
       setNewProductName(null);
       if (result.success && result.product) {
         setSelectedProduct(result.product);

@@ -131,14 +131,28 @@ export default function ProductManagement() {
       return;
     }
 
-    const result = await addProduct({
+    // Build product data - only include stock fields if user provided them
+    const productData: {
+      name: string;
+      price: number;
+      category: ProductCategory;
+      image_url?: string;
+      stock_quantity?: number;
+      low_stock_threshold?: number;
+    } = {
       name: newName.trim(),
       price: parseFloat(newPrice),
       category: newCategory,
       image_url: newImageUrl.trim() || undefined,
-      stock_quantity: parseInt(newStockQuantity) || 0,
-      low_stock_threshold: parseInt(newLowStockThreshold) || 5,
-    });
+    };
+    
+    // Only add stock fields if user explicitly entered values
+    if (newStockQuantity.trim() !== "" && newStockQuantity !== "0") {
+      productData.stock_quantity = parseInt(newStockQuantity);
+      productData.low_stock_threshold = parseInt(newLowStockThreshold) || 5;
+    }
+    
+    const result = await addProduct(productData);
 
     if (result.success) {
       toast({ title: "Success", description: "Product added successfully" });

@@ -200,14 +200,30 @@ export function useMySQLSync() {
   const addProduct = useCallback(
     async (product: Omit<Product, "id">) => {
       if (isOnline) {
-        const result = await productsApi.create({
+        // Build product data - only include stock fields if they exist in the database
+        const productData: {
+          name: string;
+          price: number;
+          category?: string;
+          image_url?: string;
+          stock_quantity?: number;
+          low_stock_threshold?: number;
+        } = {
           name: product.name,
           price: product.price,
           category: product.category,
           image_url: product.image_url,
-          stock_quantity: product.stock_quantity ?? 0,
-          low_stock_threshold: product.low_stock_threshold ?? 5,
-        });
+        };
+        
+        // Only include stock fields if explicitly provided (not undefined)
+        if (product.stock_quantity !== undefined) {
+          productData.stock_quantity = product.stock_quantity;
+        }
+        if (product.low_stock_threshold !== undefined) {
+          productData.low_stock_threshold = product.low_stock_threshold;
+        }
+        
+        const result = await productsApi.create(productData);
         if (result.success && result.id) {
           const newProduct = { ...product, id: String(result.id) };
           setProducts((prev) => [...prev, newProduct]);
