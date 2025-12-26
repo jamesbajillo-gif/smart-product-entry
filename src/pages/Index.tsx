@@ -7,12 +7,17 @@ import { QuantityDialog } from "@/components/QuantityDialog";
 import { AddProductDialog } from "@/components/AddProductDialog";
 import { PaymentDialog, PaymentDetails } from "@/components/PaymentDialog";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
+import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Terminal } from "lucide-react";
 
+// Track quantity history per product: productId -> array of quantities sold
+type QuantityHistory = Record<string, number[]>;
+
 const Index = () => {
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [products, setProducts] = useSessionStorage<Product[]>("pos-products", initialProducts);
+  const [orderItems, setOrderItems] = useSessionStorage<OrderItem[]>("pos-order", []);
+  const [quantityHistory, setQuantityHistory] = useSessionStorage<QuantityHistory>("pos-qty-history", {});
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [newProductName, setNewProductName] = useState<string | null>(null);
@@ -21,10 +26,42 @@ const Index = () => {
   const [receiptPayment, setReceiptPayment] = useState<PaymentDetails | null>(null);
   const { toast } = useToast();
 
+  // Check if product should show qty dialog based on history
+  const shouldShowQtyDialog = useCallback((productId: string): boolean => {
+    const history = quantityHistory[productId] || [];
+    // Show qty dialog if product has been sold 2+ times with qty > 1
+    const multiQtySales = history.filter((qty) => qty > 1).length;
+    return multiQtySales >= 2;
+  }, [quantityHistory]);
+
+  // Add product to cart (with or without qty dialog)
+  const addToCart = useCallback((product: Product, quantity: number) => {
+    setOrderItems((prev) => {
+      const existingIndex = prev.findIndex((item) => item.product.id === product.id);
+
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          quantity: updated[existingIndex].quantity + quantity,
+        };
+        return updated;
+      }
+
+      return [...prev, { product, quantity }];
+    });
+  }, [setOrderItems]);
+
   const handleProductSelect = useCallback((product: Product) => {
-    setSelectedProduct(product);
+    if (shouldShowQtyDialog(product.id)) {
+      // Show qty dialog for products frequently sold with qty > 1
+      setSelectedProduct(product);
+    } else {
+      // Add directly with qty 1
+      addToCart(product, 1);
+    }
     setSearchQuery("");
-  }, []);
+  }, [shouldShowQtyDialog, addToCart]);
 
   const handleAddNewProduct = useCallback((name: string) => {
     setNewProductName(name);
@@ -34,27 +71,10 @@ const Index = () => {
   const handleQuantityConfirm = useCallback(
     (quantity: number) => {
       if (!selectedProduct) return;
-
-      setOrderItems((prev) => {
-        const existingIndex = prev.findIndex(
-          (item) => item.product.id === selectedProduct.id
-        );
-
-        if (existingIndex >= 0) {
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            quantity: updated[existingIndex].quantity + quantity,
-          };
-          return updated;
-        }
-
-        return [...prev, { product: selectedProduct, quantity }];
-      });
-
+      addToCart(selectedProduct, quantity);
       setSelectedProduct(null);
     },
-    [selectedProduct]
+    [selectedProduct, addToCart]
   );
 
   const handleNewProductConfirm = useCallback(
@@ -113,11 +133,19 @@ const Index = () => {
   }, [orderItems, toast]);
 
   const handlePaymentConfirm = useCallback((details: PaymentDetails) => {
+    // Record quantity history for smart qty dialog
+    orderItems.forEach((item) => {
+      setQuantityHistory((prev) => ({
+        ...prev,
+        [item.product.id]: [...(prev[item.product.id] || []), item.quantity].slice(-10), // Keep last 10
+      }));
+    });
+
     setShowPayment(false);
     setReceiptItems([...orderItems]);
     setReceiptPayment(details);
     setOrderItems([]);
-  }, [orderItems]);
+  }, [orderItems, setQuantityHistory, setOrderItems]);
 
   const handlePaymentCancel = useCallback(() => {
     setShowPayment(false);
