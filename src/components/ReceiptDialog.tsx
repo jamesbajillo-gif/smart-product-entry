@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { OrderItem } from "@/types/product";
-import { X, CheckCircle, Banknote, Smartphone } from "lucide-react";
+import { X, CheckCircle, Banknote, Smartphone, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { PaymentDetails } from "./PaymentDialog";
@@ -12,17 +13,41 @@ interface ReceiptDialogProps {
 
 export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogProps) {
   const { toast } = useToast();
+  const [isSubmitted, setIsSubmitted] = useState(false);
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const now = new Date();
 
   const handleSubmit = () => {
+    setIsSubmitted(true);
     toast({
-      title: "Sale Complete",
-      description: `Total amount sold: ₱${total.toFixed(2)}`,
+      title: "🎉 Sale Complete!",
+      description: `Total sold: ₱${total.toFixed(2)} • ${itemCount} item${itemCount > 1 ? 's' : ''}`,
     });
-    onClose();
+    // Auto close after animation
+    setTimeout(() => {
+      onClose();
+    }, 1500);
   };
+
+  if (isSubmitted) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+        <div className="glass-panel rounded-xl p-8 w-full max-w-sm mx-4 animate-scale-in text-center">
+          <div className="relative">
+            <div className="w-20 h-20 mx-auto mb-4 bg-success/20 rounded-full flex items-center justify-center animate-[pulse_1s_ease-in-out_infinite]">
+              <CheckCircle className="w-10 h-10 text-success" />
+            </div>
+            <PartyPopper className="absolute top-0 right-1/4 w-6 h-6 text-primary animate-fade-in" style={{ animationDelay: '0.2s' }} />
+            <PartyPopper className="absolute top-0 left-1/4 w-6 h-6 text-primary animate-fade-in scale-x-[-1]" style={{ animationDelay: '0.3s' }} />
+          </div>
+          <h2 className="text-2xl font-bold text-foreground mb-2">Order Complete!</h2>
+          <p className="text-3xl font-bold text-success mb-2">₱{total.toFixed(2)}</p>
+          <p className="text-muted-foreground text-sm">{itemCount} item{itemCount > 1 ? 's' : ''} sold</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
