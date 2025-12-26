@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Product, PRODUCT_CATEGORIES } from "@/types/product";
-import { Search, Plus, Tag } from "lucide-react";
+import { Search, Plus, Tag, AlertTriangle, Package } from "lucide-react";
 
 interface ProductSearchProps {
   products: Product[];
@@ -10,6 +10,14 @@ interface ProductSearchProps {
   onAddNewProduct: (name: string) => void;
   onCheckout: () => void;
 }
+
+const getStockStatus = (product: Product) => {
+  const stock = product.stock_quantity ?? 0;
+  const threshold = product.low_stock_threshold ?? 5;
+  if (stock === 0) return 'out';
+  if (stock <= threshold) return 'low';
+  return 'ok';
+};
 
 export function ProductSearch({
   products,
@@ -153,6 +161,9 @@ export function ProductSearch({
               <div className="space-y-1">
                 {categoryProducts.map((product) => {
                   const flatIndex = getFlatIndex(product);
+                  const stockStatus = getStockStatus(product);
+                  const stock = product.stock_quantity ?? 0;
+                  
                   return (
                     <button
                       key={product.id}
@@ -162,9 +173,43 @@ export function ProductSearch({
                         flatIndex === selectedIndex
                           ? "bg-primary/20 border border-primary/50"
                           : "bg-secondary/50 hover:bg-secondary border border-transparent"
-                      }`}
+                      } ${stockStatus === 'out' ? 'opacity-60' : ''}`}
                     >
-                      <span className="font-medium text-foreground">{product.name}</span>
+                      <div className="flex items-center gap-3">
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            className="w-10 h-10 object-cover rounded-lg"
+                            onError={(e) => (e.currentTarget.style.display = 'none')}
+                          />
+                        ) : (
+                          <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
+                            <Package className="w-5 h-5 text-muted-foreground/50" />
+                          </div>
+                        )}
+                        <div className="text-left">
+                          <span className="font-medium text-foreground">{product.name}</span>
+                          {/* Stock indicator */}
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {stockStatus === 'out' ? (
+                              <span className="text-xs text-destructive flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                Out of stock
+                              </span>
+                            ) : stockStatus === 'low' ? (
+                              <span className="text-xs text-warning flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                Low stock ({stock})
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {stock} in stock
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                       <span className="text-primary font-mono font-semibold">
                         ₱{product.price.toFixed(2)}
                       </span>

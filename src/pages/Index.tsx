@@ -54,6 +54,27 @@ const Index = () => {
   }, [setOrderItems]);
 
   const handleProductSelect = useCallback((product: Product) => {
+    const stock = product.stock_quantity ?? 0;
+    const threshold = product.low_stock_threshold ?? 5;
+    
+    // Warn if out of stock
+    if (stock === 0) {
+      toast({
+        title: "Out of Stock",
+        description: `${product.name} is currently out of stock`,
+        variant: "destructive",
+      });
+      return; // Prevent adding to cart
+    }
+    
+    // Warn if low stock
+    if (stock <= threshold) {
+      toast({
+        title: "Low Stock Warning",
+        description: `Only ${stock} ${product.name} left in stock`,
+      });
+    }
+    
     if (shouldShowQtyDialog(product.id)) {
       // Show qty dialog for products frequently sold with qty > 1
       setSelectedProduct(product);
@@ -62,7 +83,7 @@ const Index = () => {
       addToCart(product, 1);
     }
     setSearchQuery("");
-  }, [shouldShowQtyDialog, addToCart]);
+  }, [shouldShowQtyDialog, addToCart, toast]);
 
   const handleAddNewProduct = useCallback((name: string) => {
     setNewProductName(name);
