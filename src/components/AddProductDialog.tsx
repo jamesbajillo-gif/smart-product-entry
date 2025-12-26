@@ -5,28 +5,31 @@ import { PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
 
 interface AddProductDialogProps {
   productName: string;
-  onConfirm: (name: string, price: number, category?: ProductCategory) => void;
+  onConfirm: (name: string, price: number, category?: ProductCategory, stockQuantity?: number) => void;
   onCancel: () => void;
 }
 
 export function AddProductDialog({ productName, onConfirm, onCancel }: AddProductDialogProps) {
   const [name, setName] = useState(productName);
   const [price, setPrice] = useState("");
+  const [stockQuantity, setStockQuantity] = useState("");
   const [category, setCategory] = useState<ProductCategory>("Other");
   const priceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setName(productName);
     setPrice("");
+    setStockQuantity("");
     setCategory("Other");
-    setTimeout(() => priceInputRef.current?.focus(), 50);
+    requestAnimationFrame(() => priceInputRef.current?.focus());
   }, [productName]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const numericPrice = parseFloat(price);
+    const numericStock = stockQuantity ? parseInt(stockQuantity) : 0;
     if (name.trim() && numericPrice > 0) {
-      onConfirm(name.trim(), numericPrice, category);
+      onConfirm(name.trim(), numericPrice, category, numericStock);
     }
   };
 
@@ -88,29 +91,49 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-muted-foreground mb-2">
-              SRP (Selling Price)
-            </label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">
-                ₱
-              </span>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
+                SRP (Selling Price)
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">
+                  ₱
+                </span>
+                <input
+                  ref={priceInputRef}
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*\.?[0-9]*"
+                  value={price}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "" || /^\d*\.?\d*$/.test(val)) {
+                      setPrice(val);
+                    }
+                  }}
+                  className="w-full pl-7 pr-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
+                Initial Stock
+              </label>
               <input
-                ref={priceInputRef}
                 type="text"
-                inputMode="decimal"
-                pattern="[0-9]*\.?[0-9]*"
-                value={price}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={stockQuantity}
                 onChange={(e) => {
                   const val = e.target.value;
-                  // Only allow numbers and one decimal point
-                  if (val === "" || /^\d*\.?\d*$/.test(val)) {
-                    setPrice(val);
+                  if (val === "" || /^\d*$/.test(val)) {
+                    setStockQuantity(val);
                   }
                 }}
-                className="w-full pl-8 pr-4 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
-                placeholder="0.00"
+                className="w-full px-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder="0"
               />
             </div>
           </div>

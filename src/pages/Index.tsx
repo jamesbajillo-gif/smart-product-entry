@@ -98,14 +98,26 @@ const Index = () => {
   );
 
   const handleNewProductConfirm = useCallback(
-    async (name: string, price: number, category?: ProductCategory) => {
-      const result = await addProduct({ name, price, category });
+    async (name: string, price: number, category?: ProductCategory, stockQuantity?: number) => {
+      const result = await addProduct({ 
+        name, 
+        price, 
+        category,
+        stock_quantity: stockQuantity ?? 0,
+        low_stock_threshold: 5,
+      });
       setNewProductName(null);
       if (result.success && result.product) {
         setSelectedProduct(result.product);
         toast({
           title: "Product added",
           description: `${name} - ₱${price.toFixed(2)}`,
+        });
+      } else {
+        toast({
+          title: "Failed to add product",
+          description: result.error || "Please try again",
+          variant: "destructive",
         });
       }
     },
