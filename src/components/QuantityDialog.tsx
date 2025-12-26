@@ -11,15 +11,18 @@ interface QuantityDialogProps {
 
 export function QuantityDialog({ product, onConfirm, onCancel }: QuantityDialogProps) {
   const [quantity, setQuantity] = useState("1");
+  const [showControls, setShowControls] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (product) {
       setQuantity("1");
-      setTimeout(() => {
+      setShowControls(false);
+      // Immediately focus the input
+      requestAnimationFrame(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
-      }, 50);
+      });
     }
   }, [product]);
 
@@ -73,31 +76,39 @@ export function QuantityDialog({ product, onConfirm, onCancel }: QuantityDialogP
               Quantity
             </label>
             <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => adjustQuantity(-1)}
-                disabled={numericQuantity <= 1}
-              >
-                <Minus className="w-4 h-4" />
-              </Button>
+              {showControls && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => adjustQuantity(-1)}
+                  disabled={numericQuantity <= 1}
+                >
+                  <Minus className="w-4 h-4" />
+                </Button>
+              )}
               <input
                 ref={inputRef}
                 type="number"
                 min="1"
                 value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
+                onChange={(e) => {
+                  setQuantity(e.target.value);
+                  setShowControls(true);
+                }}
+                onFocus={() => setShowControls(true)}
                 className="flex-1 text-center text-2xl font-mono font-bold py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => adjustQuantity(1)}
-              >
-                <Plus className="w-4 h-4" />
-              </Button>
+              {showControls && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => adjustQuantity(1)}
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              )}
             </div>
           </div>
 
