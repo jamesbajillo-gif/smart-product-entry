@@ -9,6 +9,7 @@ import {
   SaleRecord,
 } from "@/services/mysqlApi";
 import { initialProducts } from "@/data/products";
+import { toast } from "@/hooks/use-toast";
 
 type QuantityHistory = Record<string, number[]>;
 
@@ -17,6 +18,12 @@ interface PendingSale {
   data: Omit<SaleRecord, "id" | "created_at"> & { created_at: string };
   quantityUpdates: { productId: string; quantities: number[] }[];
   createdAt: number;
+}
+
+interface SyncResult {
+  synced: number;
+  failed: number;
+  remaining: number;
 }
 
 const PENDING_SALES_KEY = "pos-pending-sales";
@@ -46,15 +53,20 @@ export function useMySQLSync() {
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Sync pending sales to server
-  const syncPendingSales = useCallback(async () => {
+  const syncPendingSales = useCallback(async (showToast = false): Promise<SyncResult> => {
     const pending = loadPendingSales();
-    if (pending.length === 0 || isSyncing) return;
+    if (pending.length === 0 || isSyncing) {
+      return { synced: 0, failed: 0, remaining: pending.length };
+    }
 
     const connected = await checkApiConnection();
-    if (!connected) return;
+    if (!connected) {
+      return { synced: 0, failed: 0, remaining: pending.length };
+    }
 
     setIsSyncing(true);
     const successfulIds: string[] = [];
+    let failedCount = 0;
 
     for (const sale of pending) {
       try {
@@ -66,21 +78,31 @@ export function useMySQLSync() {
             await quantityHistoryApi.upsert(update.productId, update.quantities);
           }
           successfulIds.push(sale.id);
+        } else {
+          failedCount++;
         }
       } catch (error) {
         console.error("Failed to sync sale:", error);
+        failedCount++;
       }
     }
 
     // Remove successfully synced sales
+    const remaining = pending.filter((s) => !successfulIds.includes(s.id));
     if (successfulIds.length > 0) {
-      const remaining = pending.filter((s) => !successfulIds.includes(s.id));
       savePendingSales(remaining);
       setPendingSales(remaining);
       console.log(`Synced ${successfulIds.length} pending sale(s)`);
+
+      // Show toast notification
+      toast({
+        title: "Sales Synced",
+        description: `${successfulIds.length} sale${successfulIds.length > 1 ? "s" : ""} uploaded successfully${remaining.length > 0 ? `. ${remaining.length} pending.` : ""}`,
+      });
     }
 
     setIsSyncing(false);
+    return { synced: successfulIds.length, failed: failedCount, remaining: remaining.length };
   }, [isSyncing]);
 
   // Check API connection and load initial data
