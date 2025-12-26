@@ -546,7 +546,70 @@ export const stockApi = {
   },
 };
 
-// Helper function to generate ALTER TABLE SQL for missing columns
+// Expenses API for always-available items
+export interface ExpenseRecord {
+  id?: number;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  supplier?: string;
+  notes?: string;
+  created_at?: string;
+}
+
+export const expensesApi = {
+  // Add expense record
+  create: async (expense: Omit<ExpenseRecord, "id" | "created_at">) => {
+    const result = await apiRequest<{ id: number }>("POST", {
+      table: "expenses",
+      data: {
+        ...expense,
+        created_at: formatMySQLDateTime(new Date()),
+      },
+    });
+    return result;
+  },
+
+  // Get expenses for a product
+  getByProduct: async (productId: string, limit = 50) => {
+    const result = await apiRequest<ExpenseRecord[]>("GET", {
+      table: "expenses",
+      filters: { product_id: productId },
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit,
+    });
+    return result;
+  },
+
+  // Get all expenses
+  getAll: async (limit = 100) => {
+    const result = await apiRequest<ExpenseRecord[]>("GET", {
+      table: "expenses",
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit,
+    });
+    return result;
+  },
+
+  // Get unique suppliers
+  getSuppliers: async () => {
+    const result = await apiRequest<ExpenseRecord[]>("GET", {
+      table: "expenses",
+      limit: 500,
+    });
+    if (result.success && result.data) {
+      const suppliers = [...new Set(result.data.map(e => e.supplier).filter(Boolean))];
+      return { success: true, data: suppliers as string[] };
+    }
+    return { success: false, data: [] };
+  },
+};
+
+
 export const generateAlterTableSQL = (tableName: string, missingColumns: string[]): string => {
   const schema = REQUIRED_SCHEMA[tableName as keyof typeof REQUIRED_SCHEMA];
   if (!schema) return "";
@@ -658,6 +721,33 @@ export const REQUIRED_SCHEMA = {
       INDEX idx_supplier (supplier)
     )`,
   },
+  expenses: {
+    tableName: "expenses",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "product_id", type: "VARCHAR(50) NOT NULL" },
+      { name: "product_name", type: "VARCHAR(255) NOT NULL" },
+      { name: "quantity", type: "INT NOT NULL" },
+      { name: "unit_cost", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "total_cost", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "supplier", type: "VARCHAR(255)" },
+      { name: "notes", type: "TEXT" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS expenses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id VARCHAR(50) NOT NULL,
+      product_name VARCHAR(255) NOT NULL,
+      quantity INT NOT NULL,
+      unit_cost DECIMAL(10,2) NOT NULL,
+      total_cost DECIMAL(10,2) NOT NULL,
+      supplier VARCHAR(255),
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_product_id (product_id),
+      INDEX idx_supplier (supplier),
+      INDEX idx_created_at (created_at)
+    )`,
+  },
 };
-
 
