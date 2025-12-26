@@ -11,7 +11,7 @@ import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Terminal, Wifi, WifiOff, Receipt, Package, CloudOff, RefreshCw } from "lucide-react";
+import { Terminal, Wifi, WifiOff, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu } from "lucide-react";
 
 const Index = () => {
   const {
@@ -33,7 +33,10 @@ const Index = () => {
   const [showPayment, setShowPayment] = useState(false);
   const [receiptItems, setReceiptItems] = useState<OrderItem[] | null>(null);
   const [receiptPayment, setReceiptPayment] = useState<PaymentDetails | null>(null);
+  const [cartOpen, setCartOpen] = useState(false);
   const { toast } = useToast();
+
+  const itemCount = orderItems.reduce((sum, item) => sum + item.quantity, 0);
 
   // Add product to cart (with or without qty dialog)
   const addToCart = useCallback((product: Product, quantity: number) => {
@@ -146,6 +149,7 @@ const Index = () => {
       });
       return;
     }
+    setCartOpen(false);
     setShowPayment(true);
   }, [orderItems, toast]);
 
@@ -202,26 +206,30 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto h-[calc(100vh-3rem)] flex gap-6">
+    <div className="min-h-screen bg-background p-3 sm:p-4 lg:p-6">
+      <div className="max-w-7xl mx-auto h-[calc(100vh-1.5rem)] sm:h-[calc(100vh-2rem)] lg:h-[calc(100vh-3rem)] flex gap-4 lg:gap-6">
         {/* Main Content */}
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <header className="mb-8">
-            <div className="flex items-center gap-3 mb-2">
+          <header className="mb-4 sm:mb-6 lg:mb-8">
+            <div className="flex items-center gap-2 sm:gap-3 mb-2">
               <div className="p-2 bg-primary/20 rounded-lg glow-primary">
-                <Terminal className="w-6 h-6 text-primary" />
+                <Terminal className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
               </div>
-              <h1 className="text-3xl font-bold text-foreground">QuickPOS</h1>
-              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${isOnline ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-foreground">QuickPOS</h1>
+              
+              {/* Connection status */}
+              <div className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${isOnline ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
                 {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
                 {isOnline ? 'Online' : 'Offline'}
               </div>
+              
+              {/* Pending sync button */}
               {pendingSalesCount > 0 && (
                 <button
                   onClick={triggerSync}
                   disabled={isSyncing}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-colors ${
+                  className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs transition-colors ${
                     isSyncing 
                       ? 'bg-muted text-muted-foreground' 
                       : 'bg-warning/20 text-warning hover:bg-warning/30'
@@ -233,31 +241,66 @@ const Index = () => {
                   ) : (
                     <CloudOff className="w-3 h-3" />
                   )}
-                  {pendingSalesCount} pending
+                  {pendingSalesCount}
                 </button>
               )}
-              <div className="ml-auto flex gap-2">
-                <Link to="/products">
+              
+              <div className="ml-auto flex items-center gap-2">
+                {/* Desktop nav buttons */}
+                <Link to="/products" className="hidden sm:block">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Package className="w-4 h-4" />
-                    Products
+                    <span className="hidden lg:inline">Products</span>
                   </Button>
                 </Link>
-                <Link to="/sales">
+                <Link to="/sales" className="hidden sm:block">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Receipt className="w-4 h-4" />
-                    Sales
+                    <span className="hidden lg:inline">Sales</span>
                   </Button>
                 </Link>
+                
+                {/* Cart button - mobile only */}
+                <button
+                  onClick={() => setCartOpen(true)}
+                  className="relative p-2 sm:p-3 bg-primary/20 rounded-lg lg:hidden"
+                >
+                  <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+                  {itemCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-5 h-5 flex items-center justify-center px-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-full animate-scale-in">
+                      {itemCount}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
-            <p className="text-muted-foreground">
+            
+            {/* Mobile status bar */}
+            <div className="flex items-center gap-2 sm:hidden mb-2">
+              <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${isOnline ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'}`}>
+                {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+              </div>
+              <Link to="/products">
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                  <Package className="w-3 h-3 mr-1" />
+                  Products
+                </Button>
+              </Link>
+              <Link to="/sales">
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                  <Receipt className="w-3 h-3 mr-1" />
+                  Sales
+                </Button>
+              </Link>
+            </div>
+            
+            <p className="text-muted-foreground text-sm sm:text-base hidden sm:block">
               Fast product search with auto-complete
             </p>
           </header>
 
           {/* Search Area */}
-          <div className="flex-1 flex items-start justify-center pt-12">
+          <div className="flex-1 flex items-start justify-center pt-4 sm:pt-8 lg:pt-12">
             <div className="w-full max-w-2xl">
               <ProductSearch
                 products={products}
@@ -270,8 +313,8 @@ const Index = () => {
             </div>
           </div>
 
-          {/* Keyboard Hint */}
-          <footer className="mt-auto pt-4 text-center text-sm text-muted-foreground">
+          {/* Keyboard Hint - desktop only */}
+          <footer className="hidden lg:block mt-auto pt-4 text-center text-sm text-muted-foreground">
             <kbd className="px-2 py-1 bg-secondary rounded text-xs font-mono">ESC</kbd>
             {" "}to clear search
           </footer>
@@ -283,6 +326,9 @@ const Index = () => {
           onRemoveItem={handleRemoveItem}
           onUpdateQuantity={handleUpdateQuantity}
           onClearOrder={handleClearOrder}
+          onCheckout={handleCheckout}
+          isOpen={cartOpen}
+          onClose={() => setCartOpen(false)}
         />
       </div>
 
