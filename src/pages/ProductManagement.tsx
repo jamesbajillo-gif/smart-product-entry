@@ -15,6 +15,9 @@ import {
   Search,
   Tag,
   Filter,
+  CheckSquare,
+  Square,
+  Minus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -31,6 +34,9 @@ export default function ProductManagement() {
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
   const [newCategory, setNewCategory] = useState<ProductCategory>("Other");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkCategory, setBulkCategory] = useState<ProductCategory>("Beverages");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const { toast } = useToast();
 
   const loadProducts = async () => {
@@ -152,8 +158,70 @@ export default function ProductManagement() {
     setEditCategory("Other");
   };
 
+  // Selection handlers
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredProducts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredProducts.map((p) => p.id)));
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkCategoryUpdate = async () => {
+    if (selectedIds.size === 0) return;
+
+    setIsBulkUpdating(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const id of selectedIds) {
+      const result = await productsApi.update(id, { category: bulkCategory });
+      if (result.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    }
+
+    setIsBulkUpdating(false);
+
+    if (failCount === 0) {
+      toast({
+        title: "Success",
+        description: `Updated ${successCount} product${successCount > 1 ? "s" : ""} to "${bulkCategory}"`,
+      });
+    } else {
+      toast({
+        title: "Partial Success",
+        description: `Updated ${successCount} products, ${failCount} failed`,
+      });
+    }
+
+    setSelectedIds(new Set());
+    loadProducts();
+  };
+
+  const isAllSelected = filteredProducts.length > 0 && selectedIds.size === filteredProducts.length;
+  const isSomeSelected = selectedIds.size > 0 && selectedIds.size < filteredProducts.length;
+
   return (
-    <div className="min-h-screen bg-background p-6">
+    <div className="min-h-screen bg-background p-6 pb-24">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <header className="mb-8">
@@ -305,6 +373,20 @@ export default function ProductManagement() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border">
+                      <th className="w-12 p-4">
+                        <button
+                          onClick={toggleSelectAll}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {isAllSelected ? (
+                            <CheckSquare className="w-5 h-5 text-primary" />
+                          ) : isSomeSelected ? (
+                            <Minus className="w-5 h-5" />
+                          ) : (
+                            <Square className="w-5 h-5" />
+                          )}
+                        </button>
+                      </th>
                       <th className="text-left p-4 text-sm font-medium text-muted-foreground">
                         ID
                       </th>
@@ -326,8 +408,24 @@ export default function ProductManagement() {
                     {categoryProducts.map((product) => (
                       <tr
                         key={product.id}
-                        className="border-b border-border/50 hover:bg-secondary/30 transition-colors"
+                        className={`border-b border-border/50 transition-colors ${
+                          selectedIds.has(product.id)
+                            ? "bg-primary/10"
+                            : "hover:bg-secondary/30"
+                        }`}
                       >
+                        <td className="w-12 p-4">
+                          <button
+                            onClick={() => toggleSelect(product.id)}
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {selectedIds.has(product.id) ? (
+                              <CheckSquare className="w-5 h-5 text-primary" />
+                            ) : (
+                              <Square className="w-5 h-5" />
+                            )}
+                          </button>
+                        </td>
                         <td className="p-4 text-sm text-muted-foreground font-mono">
                           #{product.id}
                         </td>
@@ -424,6 +522,49 @@ export default function ProductManagement() {
           </div>
         )}
       </div>
+
+      {/* Bulk Action Bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 glass-panel rounded-xl p-4 shadow-lg border border-primary/30 animate-slide-up flex items-center gap-4">
+          <div className="flex items-center gap-2 text-foreground">
+            <CheckSquare className="w-5 h-5 text-primary" />
+            <span className="font-medium">{selectedIds.size} selected</span>
+          </div>
+          <div className="h-6 w-px bg-border" />
+          <div className="flex items-center gap-2">
+            <Tag className="w-4 h-4 text-muted-foreground" />
+            <select
+              value={bulkCategory}
+              onChange={(e) => setBulkCategory(e.target.value as ProductCategory)}
+              className="px-3 py-1.5 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              {PRODUCT_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              onClick={handleBulkCategoryUpdate}
+              disabled={isBulkUpdating}
+              className="gap-2"
+            >
+              {isBulkUpdating ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              Apply
+            </Button>
+          </div>
+          <div className="h-6 w-px bg-border" />
+          <Button variant="ghost" size="sm" onClick={clearSelection}>
+            <X className="w-4 h-4" />
+            Clear
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
