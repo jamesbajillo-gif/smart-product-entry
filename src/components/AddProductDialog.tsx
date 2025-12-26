@@ -90,7 +90,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
 
           <div>
             <label className="block text-sm font-medium text-muted-foreground mb-2">
-              Price
+              SRP (Selling Price)
             </label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">
