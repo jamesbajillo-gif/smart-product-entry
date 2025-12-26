@@ -7,6 +7,7 @@ import {
   getConfiguredApiUrl,
   setApiUrl,
   TableColumn,
+  generateAlterTableSQL,
 } from "@/services/mysqlApi";
 import { Button } from "@/components/ui/button";
 import {
@@ -189,6 +190,16 @@ export default function DatabaseSetup() {
 
   const allTablesExist = tableStatuses.length > 0 && tableStatuses.every((t) => t.exists);
   const someTablesMissing = tableStatuses.some((t) => !t.exists);
+  const someColumnsMissing = tableStatuses.some((t) => t.exists && t.missingColumns.length > 0);
+  
+  // Generate all ALTER TABLE SQL for missing columns
+  const getAllAlterSQL = () => {
+    return tableStatuses
+      .filter((t) => t.exists && t.missingColumns.length > 0)
+      .map((t) => generateAlterTableSQL(t.name, t.missingColumns))
+      .filter(Boolean)
+      .join("\n\n");
+  };
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -390,8 +401,39 @@ export default function DatabaseSetup() {
               </div>
             )}
 
-            {allTablesExist && (
-              <div className="flex items-center gap-2 p-3 bg-green-500/10 rounded-lg text-green-500">
+            {/* Missing Columns Alert with ALTER SQL */}
+            {someColumnsMissing && (
+              <div className="glass-panel rounded-lg p-4 bg-warning/5 border border-warning/30">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-warning">
+                    <AlertTriangle className="w-5 h-5" />
+                    <h3 className="font-medium">Missing Columns Detected</h3>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => {
+                      const sql = getAllAlterSQL();
+                      navigator.clipboard.writeText(sql);
+                      toast({ title: "Copied!", description: "All ALTER TABLE SQL copied to clipboard" });
+                    }}
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy All ALTER SQL
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Some tables are missing columns. Run the following SQL on your MySQL server to add them:
+                </p>
+                <pre className="text-xs bg-secondary p-3 rounded overflow-x-auto text-foreground whitespace-pre-wrap">
+                  {getAllAlterSQL()}
+                </pre>
+              </div>
+            )}
+
+            {allTablesExist && !someColumnsMissing && (
+              <div className="flex items-center gap-2 p-3 bg-success/10 rounded-lg text-success">
                 <CheckCircle2 className="w-5 h-5" />
                 <span>All required tables exist and are properly configured!</span>
               </div>
@@ -473,11 +515,33 @@ export default function DatabaseSetup() {
                     </div>
                   )}
 
-                  {/* Show missing columns warning */}
+                  {/* Show missing columns warning with ALTER SQL */}
                   {table.missingColumns.length > 0 && (
-                    <div className="mt-3 p-2 bg-yellow-500/10 rounded text-yellow-500 text-sm">
-                      <AlertTriangle className="w-4 h-4 inline mr-2" />
-                      Missing columns: {table.missingColumns.join(", ")}
+                    <div className="mt-3 p-3 bg-warning/10 border border-warning/30 rounded-lg text-sm">
+                      <div className="flex items-center gap-2 text-warning mb-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="font-medium">Missing columns: {table.missingColumns.join(", ")}</span>
+                      </div>
+                      <p className="text-muted-foreground text-xs mb-2">
+                        Run this SQL on your MySQL server to add the missing columns:
+                      </p>
+                      <div className="relative">
+                        <pre className="text-xs bg-secondary/50 p-2 rounded overflow-x-auto text-foreground whitespace-pre-wrap">
+                          {generateAlterTableSQL(table.name, table.missingColumns)}
+                        </pre>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute top-1 right-1 h-6 w-6 p-0"
+                          onClick={() => {
+                            const sql = generateAlterTableSQL(table.name, table.missingColumns);
+                            navigator.clipboard.writeText(sql);
+                            toast({ title: "Copied!", description: "ALTER TABLE SQL copied to clipboard" });
+                          }}
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                   )}
 
