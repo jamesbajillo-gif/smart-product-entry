@@ -69,7 +69,8 @@ export default function ProductManagement() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
-  const [newCategory, setNewCategory] = useState<ProductCategory>("Other");
+  const [newCategory, setNewCategory] = useState<ProductCategory | string>("Other");
+  const [showNewCategory, setShowNewCategory] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState("");
   const [newStockQuantity, setNewStockQuantity] = useState("0");
   const [newLowStockThreshold, setNewLowStockThreshold] = useState("5");

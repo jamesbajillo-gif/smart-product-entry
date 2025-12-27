@@ -12,6 +12,7 @@ import { GCashTransactionsDialog } from "@/components/GCashTransactionsDialog";
 import { BottleDepositRefundDialog } from "@/components/BottleDepositRefundDialog";
 import { StoreFundsDialog } from "@/components/StoreFundsDialog";
 import { StoreFundsHistoryDialog } from "@/components/StoreFundsHistoryDialog";
+import { CandiesPromoDialog } from "@/components/CandiesPromoDialog";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
@@ -47,6 +48,8 @@ const Index = () => {
   const [showBottleDepositRefundDialog, setShowBottleDepositRefundDialog] = useState(false);
   const [showStoreFundsDialog, setShowStoreFundsDialog] = useState(false);
   const [showStoreFundsHistoryDialog, setShowStoreFundsHistoryDialog] = useState(false);
+  const [showCandiesPromoDialog, setShowCandiesPromoDialog] = useState(false);
+  const [candiesPromoProduct, setCandiesPromoProduct] = useState<Product | null>(null);
   const [gcashProduct, setGcashProduct] = useState<Product | null>(null);
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(false);
@@ -295,24 +298,35 @@ const Index = () => {
   }, [sales, products]);
 
   // Add product to cart (with or without qty dialog)
-  const addToCart = useCallback((product: Product, quantity: number) => {
+  const addToCart = useCallback((product: Product, quantity: number, customPrice?: number) => {
     setOrderItems((prev) => {
-      const existingIndex = prev.findIndex((item) => item.product.id === product.id);
+      // Create product with custom price if provided (for candies-promo)
+      const productToAdd = customPrice !== undefined 
+        ? { ...product, price: customPrice }
+        : product;
+
+      const existingIndex = prev.findIndex((item) => item.product.id === productToAdd.id);
 
       if (existingIndex >= 0) {
         const updated = [...prev];
+        // If price changed, create new entry instead of merging
+        if (customPrice !== undefined && updated[existingIndex].product.price !== customPrice) {
+          // Track the last added product
+          lastModifiedProductIdRef.current = productToAdd.id;
+          return [...prev, { product: productToAdd, quantity }];
+        }
         updated[existingIndex] = {
           ...updated[existingIndex],
           quantity: updated[existingIndex].quantity + quantity,
         };
         // Track the last modified product
-        lastModifiedProductIdRef.current = product.id;
+        lastModifiedProductIdRef.current = productToAdd.id;
         return updated;
       }
 
       // Track the last added product
-      lastModifiedProductIdRef.current = product.id;
-      return [...prev, { product, quantity }];
+      lastModifiedProductIdRef.current = productToAdd.id;
+      return [...prev, { product: productToAdd, quantity }];
     });
   }, [setOrderItems]);
 
@@ -323,6 +337,16 @@ const Index = () => {
     if (isGcash) {
       setGcashProduct(product);
       setShowGcashDialog(true);
+      setSearchQuery("");
+      return;
+    }
+    
+    // Check if it's candies-promo category
+    const isCandiesPromo = product.category?.toLowerCase().trim() === "candies-promo";
+    
+    if (isCandiesPromo) {
+      setCandiesPromoProduct(product);
+      setShowCandiesPromoDialog(true);
       setSearchQuery("");
       return;
     }
@@ -1113,6 +1137,28 @@ const Index = () => {
           balance={storeFunds}
           transactions={storeFundsHistory}
           onClose={() => setShowStoreFundsHistoryDialog(false)}
+        />
+      )}
+
+      {/* Candies Promo Dialog */}
+      {showCandiesPromoDialog && candiesPromoProduct && (
+        <CandiesPromoDialog
+          product={candiesPromoProduct}
+          onConfirm={(quantity, price) => {
+            // Calculate price per unit for the cart
+            const pricePerUnit = price / quantity;
+            addToCart(candiesPromoProduct, quantity, pricePerUnit);
+            setShowCandiesPromoDialog(false);
+            setCandiesPromoProduct(null);
+            // Blur search input if it's focused
+            if (searchInputRef.current) {
+              searchInputRef.current.blur();
+            }
+          }}
+          onCancel={() => {
+            setShowCandiesPromoDialog(false);
+            setCandiesPromoProduct(null);
+          }}
         />
       )}
     </div>
