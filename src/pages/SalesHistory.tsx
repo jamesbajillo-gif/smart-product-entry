@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useUserPermissions } from "@/hooks/useUserPermissions";
 import { 
   ArrowLeft, 
   Receipt, 
@@ -48,6 +49,7 @@ const formatMySQLDate = (date: Date): string => {
 };
 
 export default function SalesHistory() {
+  const { canDelete } = useUserPermissions();
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
@@ -197,6 +199,18 @@ export default function SalesHistory() {
   const handleDeleteConfirm = async () => {
     if (!saleToDelete?.id) return;
     
+    // Check permissions
+    if (!canDelete) {
+      toast({
+        title: "Permission denied",
+        description: "You do not have permission to delete recorded sales.",
+        variant: "destructive",
+      });
+      setDeleteDialogOpen(false);
+      setSaleToDelete(null);
+      return;
+    }
+    
     setIsDeleting(true);
     const result = await salesApi.delete(saleToDelete.id);
     
@@ -235,6 +249,17 @@ export default function SalesHistory() {
 
   const handleBulkDeleteConfirm = async () => {
     if (selectedIds.size === 0) return;
+    
+    // Check permissions
+    if (!canDelete) {
+      toast({
+        title: "Permission denied",
+        description: "You do not have permission to delete recorded sales.",
+        variant: "destructive",
+      });
+      setBulkDeleteDialogOpen(false);
+      return;
+    }
     
     setIsDeleting(true);
     const ids = Array.from(selectedIds);
@@ -423,7 +448,7 @@ export default function SalesHistory() {
                       </span>
                     )}
                   </div>
-                  {selectedIds.size > 0 && (
+                  {selectedIds.size > 0 && canDelete && (
                     <Button
                       variant="destructive"
                       size="sm"
@@ -485,15 +510,17 @@ export default function SalesHistory() {
                               </p>
                             </div>
                           </button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => handleDeleteClick(e, sale)}
-                            disabled={isDeleting}
-                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => handleDeleteClick(e, sale)}
+                              disabled={isDeleting}
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     );

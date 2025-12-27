@@ -10,8 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
-const STATIC_PASSWORD = "kainkatae";
+const ADMIN_PASSWORD = "kainkatae";
+const LIMITED_PASSWORD = "mytch";
 const AUTH_KEY = "app-authenticated";
+const USER_ROLE_KEY = "app-user-role";
+
+export type UserRole = "admin" | "limited";
 
 interface PasswordProtectionProps {
   children: React.ReactNode;
@@ -35,12 +39,21 @@ export const PasswordProtection = ({ children }: PasswordProtectionProps) => {
     e.preventDefault();
     setError("");
 
-    if (password === STATIC_PASSWORD) {
+    if (password === ADMIN_PASSWORD) {
       sessionStorage.setItem(AUTH_KEY, "true");
+      sessionStorage.setItem(USER_ROLE_KEY, "admin");
       setIsAuthenticated(true);
       toast({
         title: "Access granted",
-        description: "Welcome to the application.",
+        description: "Welcome to the application (Admin access).",
+      });
+    } else if (password === LIMITED_PASSWORD) {
+      sessionStorage.setItem(AUTH_KEY, "true");
+      sessionStorage.setItem(USER_ROLE_KEY, "limited");
+      setIsAuthenticated(true);
+      toast({
+        title: "Access granted",
+        description: "Welcome to the application (Limited access - deletion disabled).",
       });
     } else {
       setError("Incorrect password. Please try again.");

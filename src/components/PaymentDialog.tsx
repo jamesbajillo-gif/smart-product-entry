@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { X, Banknote, Smartphone, Check, Delete, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export type PaymentMethod = "cash" | "gcash";
 
@@ -8,23 +9,34 @@ export interface PaymentDetails {
   method: PaymentMethod;
   amountTendered?: number;
   change?: number;
+  bottleDeposit?: number;
+  bottleDepositBreakdown?: Array<{ productName: string; quantity: number; deposit: number; total: number }>;
 }
 
 interface PaymentDialogProps {
+  subtotal: number;
+  bottleDeposit: number;
+  bottleDepositBreakdown: Array<{ productName: string; quantity: number; deposit: number; total: number }>;
   total: number;
   onConfirm: (details: PaymentDetails) => void;
   onCancel: () => void;
 }
 
-export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps) {
+export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown, total, onConfirm, onCancel }: PaymentDialogProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>("cash");
   const [amountTendered, setAmountTendered] = useState("");
   const [showNumpad, setShowNumpad] = useState(false);
+  const [includeBottleDeposit, setIncludeBottleDeposit] = useState(bottleDeposit > 0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const numericAmount = amountTendered ? parseFloat(amountTendered) || 0 : total;
-  const change = numericAmount - total;
-  const isValidCashAmount = numericAmount >= total;
+  // Calculate adjusted total based on bottle deposit checkbox
+  const adjustedTotal = useMemo(() => {
+    return includeBottleDeposit ? total : subtotal;
+  }, [includeBottleDeposit, total, subtotal]);
+
+  const numericAmount = amountTendered ? parseFloat(amountTendered) || 0 : adjustedTotal;
+  const change = numericAmount - adjustedTotal;
+  const isValidCashAmount = numericAmount >= adjustedTotal;
 
   useEffect(() => {
     if (selectedMethod === "cash") {
@@ -32,6 +44,13 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [selectedMethod]);
+
+  // Reset amount tendered when bottle deposit is toggled
+  useEffect(() => {
+    if (selectedMethod === "cash") {
+      setAmountTendered("");
+    }
+  }, [includeBottleDeposit, selectedMethod]);
 
   // Auto-focus input when typing numbers
   useEffect(() => {
@@ -48,12 +67,18 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
 
   const handleConfirm = () => {
     if (selectedMethod === "gcash") {
-      onConfirm({ method: "gcash" });
+      onConfirm({ 
+        method: "gcash",
+        bottleDeposit: includeBottleDeposit && bottleDeposit > 0 ? bottleDeposit : undefined,
+        bottleDepositBreakdown: includeBottleDeposit && bottleDeposit > 0 ? bottleDepositBreakdown : undefined,
+      });
     } else if (isValidCashAmount) {
       onConfirm({
         method: "cash",
         amountTendered: numericAmount,
         change: change,
+        bottleDeposit: includeBottleDeposit && bottleDeposit > 0 ? bottleDeposit : undefined,
+        bottleDepositBreakdown: includeBottleDeposit && bottleDeposit > 0 ? bottleDepositBreakdown : undefined,
       });
     }
   };
@@ -69,7 +94,7 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
   };
 
   // Quick amount buttons
-  const quickAmounts = [20, 50, 100, 200, 500, 1000].filter((amt) => amt >= total);
+  const quickAmounts = [20, 50, 100, 200, 500, 1000].filter((amt) => amt >= adjustedTotal);
 
   const canConfirm = selectedMethod === "gcash" || isValidCashAmount;
 
@@ -87,11 +112,60 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
         </div>
 
         {/* Total Amount */}
-        <div className="mb-6 p-4 bg-secondary/50 rounded-lg text-center">
-          <p className="text-sm text-muted-foreground">Total Amount</p>
-          <p className="text-3xl font-bold font-mono text-primary mt-1">
-            ₱{total.toFixed(2)}
-          </p>
+        <div className="mb-6 space-y-3">
+          {/* Subtotal */}
+          <div className="p-4 bg-secondary/50 rounded-lg">
+            <div className="flex justify-between items-center mb-2">
+              <p className="text-sm text-muted-foreground">Subtotal</p>
+              <p className="text-lg font-semibold font-mono text-foreground">
+                ₱{subtotal.toFixed(2)}
+              </p>
+            </div>
+            
+            {/* Bottle Deposit Breakdown */}
+            {bottleDeposit > 0 && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="include-bottle-deposit"
+                      checked={includeBottleDeposit}
+                      onCheckedChange={(checked) => setIncludeBottleDeposit(checked === true)}
+                    />
+                    <label
+                      htmlFor="include-bottle-deposit"
+                      className="text-sm text-muted-foreground cursor-pointer"
+                    >
+                      Include Bottle Deposit
+                    </label>
+                  </div>
+                  <p className={`text-lg font-semibold font-mono ${includeBottleDeposit ? 'text-info' : 'text-muted-foreground line-through'}`}>
+                    ₱{bottleDeposit.toFixed(2)}
+                  </p>
+                </div>
+                {includeBottleDeposit && bottleDepositBreakdown.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {bottleDepositBreakdown.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-xs text-muted-foreground">
+                        <span>{item.productName} × {item.quantity}</span>
+                        <span className="font-mono">₱{item.total.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Total */}
+            <div className="mt-3 pt-3 border-t-2 border-primary/30">
+              <div className="flex justify-between items-center">
+                <p className="text-sm font-medium text-foreground">Total Amount</p>
+                <p className="text-3xl font-bold font-mono text-primary">
+                  ₱{adjustedTotal.toFixed(2)}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Payment Method Selection */}
@@ -151,7 +225,7 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
                 <input
                   ref={inputRef}
                   type="number"
-                  min={total}
+                  min={adjustedTotal}
                   step="0.01"
                   value={amountTendered}
                   onChange={(e) => setAmountTendered(e.target.value)}
@@ -161,7 +235,7 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
                       handleConfirm();
                     }
                   }}
-                  placeholder={total.toFixed(2)}
+                  placeholder={adjustedTotal.toFixed(2)}
                   className="w-full pl-10 pr-12 py-4 bg-input rounded-lg text-2xl font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                 />
                 <button
@@ -248,7 +322,7 @@ export function PaymentDialog({ total, onConfirm, onCancel }: PaymentDialogProps
         {selectedMethod === "gcash" && (
           <div className="mb-6 p-4 bg-info/10 border border-info/30 rounded-lg">
             <p className="text-sm text-muted-foreground text-center">
-              Customer will pay <span className="font-semibold text-foreground">₱{total.toFixed(2)}</span> via GCash
+              Customer will pay <span className="font-semibold text-foreground">₱{adjustedTotal.toFixed(2)}</span> via GCash
             </p>
           </div>
         )}

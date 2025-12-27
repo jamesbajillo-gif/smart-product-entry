@@ -10,6 +10,7 @@ interface ProductSearchProps {
   onProductSelect: (product: Product) => void;
   onAddNewProduct: (name: string) => void;
   onCheckout: () => void;
+  searchInputRef?: React.RefObject<HTMLInputElement>;
 }
 
 const getStockStatus = (product: Product) => {
@@ -29,9 +30,11 @@ export function ProductSearch({
   onProductSelect,
   onAddNewProduct,
   onCheckout,
+  searchInputRef,
 }: ProductSearchProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const internalInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = searchInputRef || internalInputRef;
   const listRef = useRef<HTMLDivElement>(null);
   const { funds: gcashFunds } = useGCashFunds();
 
@@ -160,6 +163,7 @@ export function ProductSearch({
           break;
         case "Enter":
           e.preventDefault();
+          e.stopPropagation(); // Prevent event from bubbling to global handler
           if (!searchQuery) {
             onCheckout();
           } else if (showAddNew && selectedIndex === flatProducts.length) {

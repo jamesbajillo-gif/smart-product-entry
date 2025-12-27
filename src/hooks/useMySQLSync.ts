@@ -341,20 +341,40 @@ export function useMySQLSync() {
   // Record sale
   const recordSale = useCallback(
     async (orderItems: OrderItem[], paymentDetails: PaymentDetails) => {
-      const total = orderItems.reduce(
+      const subtotal = orderItems.reduce(
         (sum, item) => sum + item.product.price * item.quantity,
         0
       );
+      
+      // Include bottle deposit in total if present
+      const bottleDeposit = paymentDetails.bottleDeposit || 0;
+      const total = subtotal + bottleDeposit;
+
+      // Build items array with bottle deposit info for beverages
+      const itemsData = orderItems.map((item) => {
+        const itemData: any = {
+          productId: item.product.id,
+          name: item.product.name,
+          price: item.product.price,
+          quantity: item.quantity,
+        };
+        
+        // Add bottle deposit info for beverages
+        if (item.product.category?.toLowerCase().trim() === 'beverages' && bottleDeposit > 0) {
+          const depositBreakdown = paymentDetails.bottleDepositBreakdown?.find(
+            b => b.productName === item.product.name
+          );
+          if (depositBreakdown) {
+            itemData.bottleDeposit = depositBreakdown.deposit;
+            itemData.bottleDepositTotal = depositBreakdown.total;
+          }
+        }
+        
+        return itemData;
+      });
 
       const saleData = {
-        items: JSON.stringify(
-          orderItems.map((item) => ({
-            productId: item.product.id,
-            name: item.product.name,
-            price: item.product.price,
-            quantity: item.quantity,
-          }))
-        ),
+        items: JSON.stringify(itemsData),
         total,
         payment_method: paymentDetails.method,
         amount_tendered: paymentDetails.amountTendered,

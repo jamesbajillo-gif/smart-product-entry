@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { stockApi, RestockInfo } from "@/services/mysqlApi";
+import { stockApi, RestockInfo, productsApi } from "@/services/mysqlApi";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { Product, PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
 import { AddProductVariationDialog } from "@/components/AddProductVariationDialog";
 import { HistoryDialog } from "@/components/HistoryDialog";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
+import { useStoreFunds } from "@/hooks/useStoreFunds";
+import { useAvailableFunds } from "@/hooks/useAvailableFunds";
 import {
   ArrowLeft,
   Package,
@@ -36,9 +38,11 @@ import {
   Layers,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useUserPermissions } from "@/hooks/useUserPermissions";
 import { initialProducts } from "@/data/products";
 
 export default function ProductManagement() {
+  const { canDelete } = useUserPermissions();
   const {
     products,
     addProduct,
@@ -48,6 +52,8 @@ export default function ProductManagement() {
     isOnline,
     isLoading,
   } = useMySQLSync();
+  const { funds: storeFunds, addFunds: addStoreFunds, withdrawFunds: withdrawStoreFunds, refresh: refreshStoreFunds } = useStoreFunds();
+  const { availableFunds, refresh: refreshAvailableFunds } = useAvailableFunds();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ProductCategory | "All">("All");
@@ -224,6 +230,16 @@ export default function ProductManagement() {
   };
 
   const handleDelete = async (id: string, name: string) => {
+    // Check permissions
+    if (!canDelete) {
+      toast({ 
+        title: "Permission denied", 
+        description: "You do not have permission to delete products.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
 
     const result = await deleteProduct(id);
@@ -246,8 +262,9 @@ export default function ProductManagement() {
     setEditSkipStockTracking(false);
   };
 
-  // Restock from dialog
+  // Restock from dialog - handles both base products and variations
   const handleRestockConfirm = async (
+    variationId: string | null,
     type: 'add' | 'remove' | 'set',
     quantity: number,
     reason: string,
@@ -255,40 +272,149 @@ export default function ProductManagement() {
   ) => {
     if (!stockAdjustProduct) return;
 
-    const currentStock = stockAdjustProduct.stock_quantity ?? 0;
-    
-    // Build restock info for API
-    const restockInfo: RestockInfo | undefined = restockData ? {
-      supplier: restockData.supplier,
-      unitCost: restockData.unitCost,
-      notes: restockData.notes,
-    } : undefined;
+    try {
+      // Process payment source if Store Funds is selected
+      if (restockData?.paymentSource === "store_funds" && restockData?.unitCost) {
+        const totalCost = quantity * restockData.unitCost;
+        // Deduct from store funds (as expense/withdrawal from invested capital)
+        const withdrawResult = await withdrawStoreFunds(totalCost, `Restock: ${stockAdjustProduct.name}`, "Restock");
+        if (!withdrawResult.success) {
+          toast({
+            title: "Error",
+            description: withdrawResult.error || "Failed to deduct funds from store",
+            variant: "destructive",
+          });
+          return;
+        }
+        await refreshStoreFunds();
+        await refreshAvailableFunds();
+      }
 
-    const result = await stockApi.adjustStock(
-      stockAdjustProduct.id,
-      type,
-      quantity,
-      currentStock,
-      reason,
-      restockInfo
-    );
+      // Build restock info for API
+      const restockInfo: RestockInfo | undefined = restockData ? {
+        supplier: restockData.supplier,
+        unitCost: restockData.unitCost,
+        notes: restockData.notes,
+      } : undefined;
 
-    if (result.success) {
-      const newStock = currentStock + quantity;
-      await updateProduct(stockAdjustProduct.id, { stock_quantity: newStock });
-      
-      const costInfo = restockData?.unitCost 
-        ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
-        : '';
-      
+      if (variationId) {
+        // Restock a specific variation
+        const variations = (() => {
+          if (!stockAdjustProduct.variations) return [];
+          if (Array.isArray(stockAdjustProduct.variations)) return stockAdjustProduct.variations;
+          if (typeof stockAdjustProduct.variations === 'string') {
+            try {
+              return JSON.parse(stockAdjustProduct.variations);
+            } catch {
+              return [];
+            }
+          }
+          return [];
+        })();
+
+        const variation = variations.find((v: any) => v.id === variationId);
+        if (!variation) {
+          toast({ 
+            title: "Error", 
+            description: "Variation not found", 
+            variant: "destructive" 
+          });
+          return;
+        }
+
+        const currentStock = variation.stock_quantity ?? 0;
+        let newStock = currentStock;
+        if (type === 'add') {
+          newStock = currentStock + quantity;
+        } else if (type === 'remove') {
+          newStock = Math.max(0, currentStock - quantity);
+        } else if (type === 'set') {
+          newStock = quantity;
+        }
+
+        // Update the variation's stock
+        variation.stock_quantity = newStock;
+
+        // Update the product with the modified variations
+        const variationsJson = JSON.stringify(variations);
+        const updateResult = await productsApi.update(stockAdjustProduct.id, {
+          variations: variationsJson,
+        });
+
+        if (updateResult.success) {
+          // Record stock adjustment with base product ID (for history tracking)
+          await stockApi.adjustStock(
+            stockAdjustProduct.id,
+            type,
+            quantity,
+            currentStock,
+            `${reason} (Variation: ${variation.name || variationId})`,
+            restockInfo
+          );
+
+          const costInfo = restockData?.unitCost 
+            ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
+            : '';
+
+          toast({ 
+            title: "Stock Updated", 
+            description: `Added ${quantity} units to ${stockAdjustProduct.name} variation${costInfo}` 
+          });
+
+          // Refresh products to get updated data
+          await refreshProducts();
+        } else {
+          toast({ 
+            title: "Error", 
+            description: "Failed to update variation stock", 
+            variant: "destructive" 
+          });
+        }
+      } else {
+        // Restock base product
+        const currentStock = stockAdjustProduct.stock_quantity ?? 0;
+        const result = await stockApi.adjustStock(
+          stockAdjustProduct.id,
+          type,
+          quantity,
+          currentStock,
+          reason,
+          restockInfo
+        );
+
+        if (result.success) {
+          const newStock = currentStock + quantity;
+          await updateProduct(stockAdjustProduct.id, { stock_quantity: newStock });
+          
+          const costInfo = restockData?.unitCost 
+            ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
+            : '';
+          
+          toast({ 
+            title: "Stock Updated", 
+            description: `Added ${quantity} units to ${stockAdjustProduct.name}${costInfo}` 
+          });
+
+          // Refresh products to get updated data
+          await refreshProducts();
+        } else {
+          toast({ 
+            title: "Error", 
+            description: "Failed to update stock", 
+            variant: "destructive" 
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error restocking:", error);
       toast({ 
-        title: "Stock Updated", 
-        description: `Added ${quantity} units to ${stockAdjustProduct.name}${costInfo}` 
+        title: "Error", 
+        description: "An error occurred while restocking", 
+        variant: "destructive" 
       });
-    } else {
-      toast({ title: "Error", description: "Failed to update stock" });
+    } finally {
+      setStockAdjustProduct(null);
     }
-    setStockAdjustProduct(null);
   };
 
   // Selection handlers
@@ -903,15 +1029,17 @@ export default function ProductManagement() {
                                     >
                                       <Pencil className="w-4 h-4" />
                                     </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => handleDelete(product.id, product.name)}
-                                      className="h-8 w-8 text-destructive"
-                                      disabled={!isOnline}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                    {canDelete && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => handleDelete(product.id, product.name)}
+                                        className="h-8 w-8 text-destructive"
+                                        disabled={!isOnline}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -969,10 +1097,11 @@ export default function ProductManagement() {
         )}
       </div>
 
-      {/* Stock Adjustment Dialog */}
+      {/* Stock Adjustment Dialog - handles both base products and variations */}
       {stockAdjustProduct && (
         <StockAdjustmentDialog
           product={stockAdjustProduct}
+          availableFunds={availableFunds}
           onCancel={() => setStockAdjustProduct(null)}
           onConfirm={handleRestockConfirm}
         />
@@ -990,7 +1119,11 @@ export default function ProductManagement() {
       {expenseProduct && (
         <AddExpenseDialog
           product={expenseProduct}
+          availableFunds={availableFunds}
           onClose={() => setExpenseProduct(null)}
+          onSuccess={async () => {
+            await refreshAvailableFunds();
+          }}
         />
       )}
 

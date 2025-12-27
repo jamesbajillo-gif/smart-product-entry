@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { X, Receipt, Plus, Loader2, Database } from "lucide-react";
+import { X, Receipt, Plus, Loader2, Database, Wallet, Banknote, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Product } from "@/types/product";
 import { expensesApi } from "@/services/mysqlApi";
 import { useToast } from "@/hooks/use-toast";
+import { PaymentSource } from "@/hooks/useAvailableFunds";
 
 interface AddExpenseDialogProps {
   product: Product;
+  availableFunds?: { cash: number; storeFunds: number; gcash: number; currentSales: number };
   onClose: () => void;
   onSuccess?: () => void;
 }
 
-export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ product, availableFunds, onClose, onSuccess }: AddExpenseDialogProps) {
   const isIceTube = product.name.toUpperCase().includes("ICE TUBE");
   const [quantity, setQuantity] = useState(isIceTube ? "1" : "1");
   const [unitCost, setUnitCost] = useState("");
@@ -23,6 +25,8 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
   const [newSupplier, setNewSupplier] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [paymentSource, setPaymentSource] = useState<PaymentSource>("cash");
+  const { addFunds: addStoreFunds, withdrawFunds: withdrawStoreFunds, refresh: refreshStoreFunds } = useStoreFunds();
   const quantityRef = useRef<HTMLInputElement>(null);
   const unitCostRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -76,6 +80,22 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
 
     const selectedSupplier = showNewSupplier ? newSupplier.trim() : supplier;
     const finalTotalCost = finalQuantity * parseFloat(unitCost);
+
+    // Process payment source if Store Funds is selected
+    if (paymentSource === "store_funds" && availableFunds) {
+      // Deduct from store funds (as expense/withdrawal from invested capital)
+      const withdrawResult = await withdrawStoreFunds(finalTotalCost, `Expense: ${product.name}`, "Expense");
+      if (!withdrawResult.success) {
+        toast({
+          title: "Error",
+          description: withdrawResult.error || "Failed to deduct funds from store",
+          variant: "destructive",
+        });
+        setIsSaving(false);
+        return;
+      }
+      await refreshStoreFunds();
+    }
 
     setIsSaving(true);
     const result = await expensesApi.create({
@@ -263,6 +283,88 @@ export function AddExpenseDialog({ product, onClose, onSuccess }: AddExpenseDial
               className="w-full px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
             />
           </div>
+
+          {/* Payment Source Selection */}
+          {totalCost > 0 && availableFunds && (
+            <div>
+              <label className="text-sm font-medium text-muted-foreground block mb-2">
+                Payment Source
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentSource("cash")}
+                  className={`p-3 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                    paymentSource === "cash"
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                  }`}
+                >
+                  <Banknote className={`w-4 h-4 ${paymentSource === "cash" ? "text-success" : "text-muted-foreground"}`} />
+                  <div className="flex-1 text-left">
+                    <p className={`text-xs font-medium ${paymentSource === "cash" ? "text-foreground" : "text-muted-foreground"}`}>
+                      Cash
+                    </p>
+                    <p className="text-xs text-muted-foreground">₱{availableFunds.cash.toFixed(2)}</p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentSource("store_funds")}
+                  className={`p-3 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                    paymentSource === "store_funds"
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                  }`}
+                >
+                  <Wallet className={`w-4 h-4 ${paymentSource === "store_funds" ? "text-primary" : "text-muted-foreground"}`} />
+                  <div className="flex-1 text-left">
+                    <p className={`text-xs font-medium ${paymentSource === "store_funds" ? "text-foreground" : "text-muted-foreground"}`}>
+                      Store Funds
+                    </p>
+                    <p className="text-xs text-muted-foreground">₱{availableFunds.storeFunds.toFixed(2)}</p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentSource("gcash")}
+                  className={`p-3 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                    paymentSource === "gcash"
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                  }`}
+                >
+                  <Smartphone className={`w-4 h-4 ${paymentSource === "gcash" ? "text-info" : "text-muted-foreground"}`} />
+                  <div className="flex-1 text-left">
+                    <p className={`text-xs font-medium ${paymentSource === "gcash" ? "text-foreground" : "text-muted-foreground"}`}>
+                      GCash
+                    </p>
+                    <p className="text-xs text-muted-foreground">₱{availableFunds.gcash.toFixed(2)}</p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentSource("current_sales")}
+                  className={`p-3 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                    paymentSource === "current_sales"
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                  }`}
+                >
+                  <Receipt className={`w-4 h-4 ${paymentSource === "current_sales" ? "text-warning" : "text-muted-foreground"}`} />
+                  <div className="flex-1 text-left">
+                    <p className={`text-xs font-medium ${paymentSource === "current_sales" ? "text-foreground" : "text-muted-foreground"}`}>
+                      Today Sales
+                    </p>
+                    <p className="text-xs text-muted-foreground">₱{availableFunds.currentSales.toFixed(2)}</p>
+                  </div>
+                </button>
+              </div>
+              {totalCost > (availableFunds[paymentSource === "cash" ? "cash" : paymentSource === "store_funds" ? "storeFunds" : paymentSource === "gcash" ? "gcash" : "currentSales"] || 0) && (
+                <p className="text-xs text-destructive mt-2">Insufficient funds in selected source</p>
+              )}
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex gap-3 pt-2">

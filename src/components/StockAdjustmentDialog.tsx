@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
-import { Product } from "@/types/product";
+import { useState, useEffect, useMemo } from "react";
+import { Product, ProductVariation } from "@/types/product";
 import { Button } from "@/components/ui/button";
-import { X, Package, Truck, Box, Layers } from "lucide-react";
+import { X, Package, Truck, Box, Layers, Wallet, Banknote, Smartphone, Receipt } from "lucide-react";
+import { PaymentSource } from "@/hooks/useAvailableFunds";
 
 export interface RestockData {
   quantity: number;
@@ -11,6 +12,8 @@ export interface RestockData {
   packagingType?: string;
   packagingCount?: number;
   packagePrice?: number;
+  bottleDeposit?: number;
+  paymentSource?: PaymentSource;
 }
 
 type PackagingType = 'case' | 'pack' | 'box';
@@ -24,23 +27,164 @@ const PACKAGING_OPTIONS: { value: PackagingType; label: string }[] = [
 
 interface StockAdjustmentDialogProps {
   product: Product;
-  onConfirm: (type: 'add' | 'remove' | 'set', quantity: number, reason: string, restockData?: RestockData) => void;
+  availableFunds?: { cash: number; storeFunds: number; gcash: number; currentSales: number };
+  onConfirm: (variationId: string | null, type: 'add' | 'remove' | 'set', quantity: number, reason: string, restockData?: RestockData) => void;
   onCancel: () => void;
 }
 
 export function StockAdjustmentDialog({
   product,
+  availableFunds,
   onConfirm,
   onCancel,
 }: StockAdjustmentDialogProps) {
+  // Check if product is "Ice Tube" (case-insensitive) - skip variation selection
+  const isIceTube = product.name.toLowerCase().trim() === 'ice tube';
+  
+  // Check if product is "Redhorse Mucho" (case-insensitive) - force case packaging with 6 pieces
+  const isRedhorseMucho = product.name.toLowerCase().trim() === 'redhorse mucho';
+  
+  // Parse variations
+  const variations: ProductVariation[] = useMemo(() => {
+    if (!product.variations) return [];
+    if (Array.isArray(product.variations)) {
+      return product.variations.filter((v): v is ProductVariation => 
+        v !== null && typeof v === 'object' && 'id' in v && typeof v.id === 'string' && typeof v.price === 'number'
+      );
+    }
+    if (typeof product.variations === 'string') {
+      const variationsStr: string = product.variations;
+      if (variationsStr.trim() === '' || variationsStr === 'null' || variationsStr === 'undefined') {
+        return [];
+      }
+      try {
+        const parsed = JSON.parse(variationsStr);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((v): v is ProductVariation => 
+            v !== null && typeof v === 'object' && 'id' in v && typeof v.id === 'string' && typeof v.price === 'number'
+          );
+        }
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, [product.variations]);
+
+  // Selected variation (null = base product)
+  const [selectedVariationId, setSelectedVariationId] = useState<string | null>(null);
+  
+  // Get the selected variation or base product for stock display
+  const selectedProduct = useMemo(() => {
+    if (selectedVariationId) {
+      const variation = variations.find(v => v.id === selectedVariationId);
+      if (variation) {
+        return {
+          ...product,
+          price: variation.price,
+          stock_quantity: variation.stock_quantity ?? 0,
+        };
+      }
+    }
+    return product;
+  }, [selectedVariationId, variations, product]);
+
   // Check if product is in Cigarettes category (case-insensitive)
   const isCigarettes = product.category?.toLowerCase().trim() === 'cigarettes';
   
+  // Check if product is in Beverages category (case-insensitive)
+  const isBeverages = product.category?.toLowerCase().trim() === 'beverages';
+  
   // For cigarettes, force bulk mode with pack type and 20 units per pack
-  const [mode, setMode] = useState<RestockMode>(isCigarettes ? 'bulk' : 'pieces');
-  const [packagingType, setPackagingType] = useState<PackagingType>(isCigarettes ? 'pack' : 'case');
+  // For Redhorse Mucho, force bulk mode with case type and 6 units per case
+  // For beverages, default to bulk mode with case type, but allow switching to pieces
+  const [mode, setMode] = useState<RestockMode>((isCigarettes || isRedhorseMucho || isBeverages) ? 'bulk' : 'pieces');
+  const [packagingType, setPackagingType] = useState<PackagingType>(
+    isCigarettes ? 'pack' : (isRedhorseMucho ? 'case' : (isBeverages ? 'case' : 'case'))
+  );
   const [packageCount, setPackageCount] = useState(1);
-  const [unitsPerPackage, setUnitsPerPackage] = useState(isCigarettes ? 20 : 12);
+  
+  // Get remembered pieces per case for beverages from localStorage
+  const getRememberedPiecesPerCase = (): number => {
+    if (isBeverages) {
+      const key = `beverages_pieces_per_case_${product.id}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          return parsed;
+        }
+      }
+    }
+    return 12; // Default for beverages
+  };
+  
+  const [unitsPerPackage, setUnitsPerPackage] = useState(
+    isCigarettes ? 20 : (isRedhorseMucho ? 6 : (isBeverages ? getRememberedPiecesPerCase() : 12))
+  );
+  
+  // Save pieces per case to localStorage when changed for beverages
+  useEffect(() => {
+    if (isBeverages && unitsPerPackage > 0) {
+      const key = `beverages_pieces_per_case_${product.id}`;
+      localStorage.setItem(key, unitsPerPackage.toString());
+    }
+  }, [isBeverages, unitsPerPackage, product.id]);
+  
+  // Get remembered bottle deposit for beverages from localStorage
+  const getRememberedBottleDeposit = (): number => {
+    if (isBeverages) {
+      const key = `beverages_bottle_deposit_${product.id}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed) && parsed >= 0) {
+          return parsed;
+        }
+      }
+    }
+    return 10; // Default bottle deposit for beverages
+  };
+  
+  // Get remembered bottle deposit enabled state for beverages from localStorage
+  const getRememberedBottleDepositEnabled = (): boolean => {
+    if (isBeverages) {
+      const key = `beverages_bottle_deposit_enabled_${product.id}`;
+      const saved = localStorage.getItem(key);
+      if (saved !== null) {
+        return saved === 'true';
+      }
+    }
+    return true; // Default: enabled for beverages
+  };
+  
+  const [bottleDeposit, setBottleDeposit] = useState(
+    isBeverages ? getRememberedBottleDeposit() : 0
+  );
+  
+  const [bottleDepositEnabled, setBottleDepositEnabled] = useState(
+    isBeverages ? getRememberedBottleDepositEnabled() : false
+  );
+
+  // Payment source selection
+  const [paymentSource, setPaymentSource] = useState<PaymentSource>("cash");
+  
+  // Save bottle deposit to localStorage when changed for beverages
+  useEffect(() => {
+    if (isBeverages && bottleDeposit >= 0) {
+      const key = `beverages_bottle_deposit_${product.id}`;
+      localStorage.setItem(key, bottleDeposit.toString());
+    }
+  }, [isBeverages, bottleDeposit, product.id]);
+  
+  // Save bottle deposit enabled state to localStorage when changed for beverages
+  useEffect(() => {
+    if (isBeverages) {
+      const key = `beverages_bottle_deposit_enabled_${product.id}`;
+      localStorage.setItem(key, bottleDepositEnabled.toString());
+    }
+  }, [isBeverages, bottleDepositEnabled, product.id]);
+  
   const [packagePrice, setPackagePrice] = useState("");
   const [piecesQuantity, setPiecesQuantity] = useState(1);
   const [piecePrice, setPiecePrice] = useState("");
@@ -48,13 +192,26 @@ export function StockAdjustmentDialog({
   const [notes, setNotes] = useState("");
   
   // Force cigarettes to use bulk mode with pack and 20 units
+  // Force Redhorse Mucho to use bulk mode with case and 6 units
+  // Beverages default to bulk mode with case, but can be changed
   useEffect(() => {
     if (isCigarettes) {
       setMode('bulk');
       setPackagingType('pack');
       setUnitsPerPackage(20);
+    } else if (isRedhorseMucho) {
+      setMode('bulk');
+      setPackagingType('case');
+      setUnitsPerPackage(6);
+    } else if (isBeverages) {
+      // Beverages default to bulk mode with case, but user can switch to pieces
+      if (mode === 'bulk') {
+        setPackagingType('case');
+        // Don't override if already set from remembered value
+        // The initial state already uses getRememberedPiecesPerCase()
+      }
     }
-  }, [isCigarettes]);
+  }, [isCigarettes, isRedhorseMucho, isBeverages, mode]);
 
   // Calculate totals based on mode
   const quantity = mode === 'bulk' 
@@ -65,11 +222,21 @@ export function StockAdjustmentDialog({
     ? parseFloat(packagePrice) / unitsPerPackage
     : parseFloat(piecePrice) || 0;
   
-  const totalCost = mode === 'bulk' && packagePrice
+  const baseCost = mode === 'bulk' && packagePrice
     ? packageCount * parseFloat(packagePrice)
     : piecesQuantity * (parseFloat(piecePrice) || 0);
+  
+  // Add bottle deposit for beverages (per case in bulk mode, per piece in pieces mode)
+  // Only if bottle deposit is enabled
+  const bottleDepositTotal = isBeverages && bottleDepositEnabled && bottleDeposit > 0
+    ? (mode === 'bulk' 
+        ? packageCount * bottleDeposit 
+        : piecesQuantity * bottleDeposit)
+    : 0;
+  
+  const totalCost = baseCost + bottleDepositTotal;
 
-  const currentStock = product.stock_quantity ?? 0;
+  const currentStock = selectedProduct.stock_quantity ?? 0;
   const newStock = currentStock + quantity;
 
   const handleSubmit = () => {
@@ -79,21 +246,27 @@ export function StockAdjustmentDialog({
       ? `${packageCount} ${packagingType}(s) × ${unitsPerPackage} = ${quantity} pcs`
       : '';
     
+    const bottleDepositNote = isBeverages && bottleDepositEnabled && bottleDeposit > 0
+      ? `Bottle Deposit: ₱${bottleDepositTotal.toFixed(2)} (${mode === 'bulk' ? `${packageCount} case(s) × ₱${bottleDeposit.toFixed(2)}` : `${piecesQuantity} piece(s) × ₱${bottleDeposit.toFixed(2)}`})`
+      : '';
+    
     const restockData: RestockData = {
       quantity,
       supplier: supplier.trim(),
       unitCost,
-      notes: [notes.trim(), packagingNote].filter(Boolean).join(' | '),
+      notes: [notes.trim(), packagingNote, bottleDepositNote].filter(Boolean).join(' | '),
       packagingType: mode === 'bulk' ? packagingType : undefined,
       packagingCount: mode === 'bulk' ? packageCount : undefined,
       packagePrice: mode === 'bulk' ? parseFloat(packagePrice) || 0 : undefined,
+      bottleDeposit: isBeverages ? bottleDeposit : undefined,
+      paymentSource,
     };
     
     const reason = supplier 
       ? `Restock from ${supplier}${mode === 'bulk' ? ` (${packageCount} ${packagingType}s)` : ''}`
       : `Restock${mode === 'bulk' ? ` (${packageCount} ${packagingType}s)` : ''}`;
     
-    onConfirm('add', quantity, reason, restockData);
+    onConfirm(selectedVariationId, 'add', quantity, reason, restockData);
   };
 
   const getPackagingLabel = () => {
@@ -109,9 +282,40 @@ export function StockAdjustmentDialog({
             <div className="p-2 bg-success/20 rounded-lg">
               <Truck className="w-5 h-5 text-success" />
             </div>
-            <div>
+            <div className="flex-1">
               <h2 className="text-lg font-bold text-foreground">Restock Product</h2>
-              <p className="text-sm text-muted-foreground">{product.name}</p>
+              {/* Variation selection dropdown - only show if not Ice Tube and has variations */}
+              {!isIceTube && variations.length > 0 ? (
+                <select
+                  value={selectedVariationId === null ? "base" : (selectedVariationId || "")}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSelectedVariationId(value === "base" ? null : value);
+                  }}
+                  className="mt-1 w-full px-3 py-1.5 text-sm bg-input rounded-lg text-foreground border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="base">
+                    {product.name}
+                  </option>
+                  {variations.map((variation) => {
+                    const variationName = typeof variation.name === 'string' ? variation.name : '';
+                    const isAutoGenerated = variationName && 
+                      variationName.includes(' - ₱') && 
+                      /₱\d+\.\d{2}$/.test(variationName);
+                    const finalDisplayName = variationName && !isAutoGenerated
+                      ? `${product.name} - ${variationName.trim()}`
+                      : product.name;
+                    
+                    return (
+                      <option key={variation.id} value={variation.id}>
+                        {finalDisplayName}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <p className="text-sm text-muted-foreground">{product.name}</p>
+              )}
             </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onCancel}>
@@ -123,25 +327,19 @@ export function StockAdjustmentDialog({
           {/* Current Stock Display */}
           <div className="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
             <span className="text-muted-foreground">Current Stock</span>
-            {product.skip_stock_tracking ? (
+            {selectedProduct.skip_stock_tracking ? (
               <span className="text-xl font-bold text-success">∞ Always Available</span>
             ) : (
               <span className={`text-xl font-bold ${
-                currentStock <= (product.low_stock_threshold ?? 5)
+                currentStock <= (selectedProduct.low_stock_threshold ?? 5)
                   ? 'text-destructive'
                   : 'text-foreground'
               }`}>{currentStock}</span>
             )}
           </div>
 
-          {/* Mode Toggle: Pieces vs Bulk - Disabled for cigarettes */}
-          {isCigarettes ? (
-            <div className="p-3 bg-info/10 rounded-lg border border-info/30">
-              <p className="text-sm text-info font-medium">
-                Cigarettes must be restocked by packs (20 pieces per pack)
-              </p>
-            </div>
-          ) : (
+          {/* Mode Toggle: Pieces vs Bulk/Case */}
+          {!isCigarettes && !isRedhorseMucho && (
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setMode('pieces')}
@@ -163,7 +361,7 @@ export function StockAdjustmentDialog({
                 }`}
               >
                 <Layers className="w-4 h-4" />
-                Bulk
+                {isBeverages ? 'Case' : 'Bulk'}
               </button>
             </div>
           )}
@@ -208,16 +406,12 @@ export function StockAdjustmentDialog({
           {/* BULK MODE */}
           {mode === 'bulk' && (
             <>
-              {/* Packaging Type Selection - Locked to Pack for cigarettes */}
-              <div>
-                <label className="text-sm text-muted-foreground block mb-2">
-                  Packaging Type
-                </label>
-                {isCigarettes ? (
-                  <div className="p-3 bg-primary/20 rounded-lg border border-primary/30">
-                    <p className="text-sm font-medium text-primary">Pack (Fixed for cigarettes)</p>
-                  </div>
-                ) : (
+              {/* Packaging Type Selection - Hidden for cigarettes, Redhorse Mucho, and beverages (beverages only use case) */}
+              {!isCigarettes && !isRedhorseMucho && !isBeverages && (
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-2">
+                    Packaging Type
+                  </label>
                   <div className="grid grid-cols-3 gap-2">
                     {PACKAGING_OPTIONS.map((option) => (
                       <button
@@ -233,13 +427,13 @@ export function StockAdjustmentDialog({
                       </button>
                     ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Number of Packages */}
               <div>
                 <label className="text-sm text-muted-foreground block mb-2">
-                  Number of {getPackagingLabel()}s
+                  Number of {isBeverages ? 'Cases' : `${getPackagingLabel()}s`}
                 </label>
                 <div className="flex items-center gap-2">
                   <button
@@ -264,19 +458,12 @@ export function StockAdjustmentDialog({
                 </div>
               </div>
 
-              {/* Units per Package - Fixed at 20 for cigarettes */}
-              <div>
-                <label className="text-sm text-muted-foreground block mb-2">
-                  Pieces per {isCigarettes ? 'Pack' : getPackagingLabel()}
-                </label>
-                {isCigarettes ? (
-                  <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
-                    <p className="text-lg font-bold text-primary text-center">20 pieces per pack</p>
-                    <p className="text-xs text-muted-foreground text-center mt-1">
-                      Fixed for cigarettes
-                    </p>
-                  </div>
-                ) : (
+              {/* Units per Package - Hidden for cigarettes and Redhorse Mucho, shown for beverages and others */}
+              {!isCigarettes && !isRedhorseMucho && (
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-2">
+                    Pieces per {isBeverages ? 'Case' : getPackagingLabel()}
+                  </label>
                   <input
                     type="number"
                     value={unitsPerPackage}
@@ -284,13 +471,18 @@ export function StockAdjustmentDialog({
                     min="1"
                     className="w-full px-4 py-2 bg-input rounded-lg text-foreground text-center font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
-                )}
-              </div>
+                  {isBeverages && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      This value will be remembered for this product
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Package Price */}
               <div>
                 <label className="text-sm text-muted-foreground block mb-2">
-                  Price per {isCigarettes ? 'Pack' : getPackagingLabel()}
+                  Price per {isCigarettes ? 'Pack' : (isRedhorseMucho || isBeverages ? 'Case' : getPackagingLabel())}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
@@ -311,15 +503,52 @@ export function StockAdjustmentDialog({
                 )}
               </div>
 
-              {/* Auto-calculated Total */}
-              <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Total Pieces</span>
-                  <span className="text-lg font-bold text-primary">
-                    {packageCount} × {unitsPerPackage} = {quantity} pcs
-                  </span>
+              {/* Bottle Deposit - Only for beverages */}
+              {isBeverages && (
+                <div>
+                  <div className="flex items-center gap-3 mb-3">
+                    <input
+                      type="checkbox"
+                      id="bottle-deposit-enabled"
+                      checked={bottleDepositEnabled}
+                      onChange={(e) => setBottleDepositEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/50"
+                    />
+                    <label htmlFor="bottle-deposit-enabled" className="text-sm font-medium text-foreground cursor-pointer">
+                      Include Bottle Deposit
+                    </label>
+                  </div>
+                  
+                  {bottleDepositEnabled && (
+                    <>
+                      <label className="text-sm text-muted-foreground block mb-2">
+                        Bottle Deposit per {mode === 'bulk' ? 'Case' : 'Piece'}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
+                        <input
+                          type="number"
+                          value={bottleDeposit}
+                          onChange={(e) => setBottleDeposit(Math.max(0, parseFloat(e.target.value) || 0))}
+                          placeholder="10.00"
+                          step="0.01"
+                          min="0"
+                          className="w-full pl-8 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Default: ₱10.00 • This value will be remembered for this product
+                      </p>
+                      {bottleDepositTotal > 0 && (
+                        <p className="text-xs text-info font-medium mt-1">
+                          Total Bottle Deposit: ₱{bottleDepositTotal.toFixed(2)} ({mode === 'bulk' ? `${packageCount} case(s)` : `${piecesQuantity} piece(s)`})
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
-              </div>
+              )}
+
             </>
           )}
 
@@ -351,34 +580,30 @@ export function StockAdjustmentDialog({
             />
           </div>
 
-          {/* Summary */}
-          <div className="space-y-2 p-3 bg-success/10 rounded-lg border border-success/20">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Adding</span>
-              <span className="text-lg font-bold text-success">+{quantity} pieces</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">New Stock</span>
-              <span className="text-xl font-bold text-success">{newStock}</span>
-            </div>
-            {totalCost > 0 && (
-              <>
-                <div className="border-t border-success/20 pt-2 mt-2">
-                  {mode === 'bulk' && packagePrice && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        {packageCount} {getPackagingLabel()}(s) @ ₱{parseFloat(packagePrice).toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Total Cost</span>
-                    <span className="font-bold text-foreground">₱{totalCost.toFixed(2)}</span>
-                  </div>
+          {/* Summary - Only show Total Cost if entered */}
+          {totalCost > 0 && (
+            <div className="space-y-2 p-3 bg-success/10 rounded-lg border border-success/20">
+              {mode === 'bulk' && packagePrice && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {packageCount} {getPackagingLabel()}(s) @ ₱{parseFloat(packagePrice).toFixed(2)}
+                  </span>
                 </div>
-              </>
-            )}
-          </div>
+              )}
+              {isBeverages && bottleDepositEnabled && bottleDepositTotal > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    Bottle Deposit: {mode === 'bulk' ? `${packageCount} case(s)` : `${piecesQuantity} piece(s)`} × ₱{bottleDeposit.toFixed(2)}
+                  </span>
+                  <span className="text-info font-medium">₱{bottleDepositTotal.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Total Cost</span>
+                <span className="font-bold text-foreground">₱{totalCost.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">

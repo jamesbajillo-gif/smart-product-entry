@@ -1,29 +1,31 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Product, OrderItem, ProductCategory } from "@/types/product";
 import { OrderSidebar } from "@/components/OrderSidebar";
 import { ProductSearch } from "@/components/ProductSearch";
-import { QuantityDialog } from "@/components/QuantityDialog";
 import { AddProductDialog } from "@/components/AddProductDialog";
 import { PaymentDialog, PaymentDetails } from "@/components/PaymentDialog";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
 import { GCashTransactionDialog, GCashTransactionDetails } from "@/components/GCashTransactionDialog";
 import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
 import { GCashTransactionsDialog } from "@/components/GCashTransactionsDialog";
+import { BottleDepositRefundDialog } from "@/components/BottleDepositRefundDialog";
+import { StoreFundsDialog } from "@/components/StoreFundsDialog";
+import { StoreFundsHistoryDialog } from "@/components/StoreFundsHistoryDialog";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
+import { useStoreFunds } from "@/hooks/useStoreFunds";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { salesApi, SaleRecord } from "@/services/mysqlApi";
-import { Terminal, Wifi, WifiOff, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3 } from "lucide-react";
+import { Terminal, Wifi, WifiOff, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3, CircleDot, Wallet } from "lucide-react";
 
 const Index = () => {
   const {
     products,
     addProduct,
     recordSale,
-    shouldShowQtyDialog,
     isOnline,
     isLoading,
     pendingSalesCount,
@@ -33,7 +35,7 @@ const Index = () => {
 
   const [orderItems, setOrderItems] = useSessionStorage<OrderItem[]>("pos-order", []);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [newProductName, setNewProductName] = useState<string | null>(null);
   const [showPayment, setShowPayment] = useState(false);
   const [receiptItems, setReceiptItems] = useState<OrderItem[] | null>(null);
@@ -42,13 +44,66 @@ const Index = () => {
   const [showGcashDialog, setShowGcashDialog] = useState(false);
   const [showAddFundsDialog, setShowAddFundsDialog] = useState(false);
   const [showGCashTransactionsDialog, setShowGCashTransactionsDialog] = useState(false);
+  const [showBottleDepositRefundDialog, setShowBottleDepositRefundDialog] = useState(false);
+  const [showStoreFundsDialog, setShowStoreFundsDialog] = useState(false);
+  const [showStoreFundsHistoryDialog, setShowStoreFundsHistoryDialog] = useState(false);
   const [gcashProduct, setGcashProduct] = useState<Product | null>(null);
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(false);
   const { toast } = useToast();
   const { funds: gcashFunds, addFunds, processGCashIn, processGCashOut } = useGCashFunds();
+  const { funds: storeFunds, history: storeFundsHistory, addFunds: addStoreFunds, withdrawFunds: withdrawStoreFunds, refresh: refreshStoreFunds } = useStoreFunds();
+
+  // Track the last modified product ID for keyboard shortcuts
+  const lastModifiedProductIdRef = useRef<string | null>(null);
 
   const itemCount = orderItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  // Calculate bottle deposit for beverages
+  const calculateBottleDeposit = useMemo(() => {
+    let totalBottleDeposit = 0;
+    const bottleDepositBreakdown: Array<{ productName: string; quantity: number; deposit: number; total: number }> = [];
+
+    orderItems.forEach((item) => {
+      const product = item.product;
+      const isBeverages = product.category?.toLowerCase().trim() === 'beverages';
+      
+      if (isBeverages) {
+        // Get remembered bottle deposit enabled state
+        const enabledKey = `beverages_bottle_deposit_enabled_${product.id}`;
+        const enabled = localStorage.getItem(enabledKey);
+        const isEnabled = enabled === null ? true : enabled === 'true'; // Default to enabled
+        
+        if (isEnabled) {
+          // Get remembered bottle deposit amount
+          const depositKey = `beverages_bottle_deposit_${product.id}`;
+          const saved = localStorage.getItem(depositKey);
+          const depositAmount = saved ? parseFloat(saved) : 10; // Default ₱10
+          
+          if (!isNaN(depositAmount) && depositAmount > 0) {
+            const depositTotal = depositAmount * item.quantity;
+            totalBottleDeposit += depositTotal;
+            bottleDepositBreakdown.push({
+              productName: product.name,
+              quantity: item.quantity,
+              deposit: depositAmount,
+              total: depositTotal,
+            });
+          }
+        }
+      }
+    });
+
+    return { total: totalBottleDeposit, breakdown: bottleDepositBreakdown };
+  }, [orderItems]);
+
+  // Calculate subtotal (product prices only)
+  const subtotal = useMemo(() => {
+    return orderItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  }, [orderItems]);
+
+  // Calculate total (subtotal + bottle deposit)
+  const totalWithBottleDeposit = subtotal + calculateBottleDeposit.total;
 
   // Load sales data for most sold products
   const loadSales = useCallback(async () => {
@@ -148,6 +203,32 @@ const Index = () => {
     return result;
   }, [sales]);
 
+  // Calculate total unrefunded bottle deposits
+  const totalUnrefundedBottleDeposits = useMemo(() => {
+    return sales.reduce((total, sale) => {
+      // Skip if already refunded
+      if (sale.bottle_deposit_refunded === 1) return total;
+      
+      try {
+        const items = parseSaleItems(sale.items);
+        
+        // Sum up all bottle deposit totals from items
+        const depositTotal = items.reduce((sum, item: any) => {
+          // Check if item has bottleDepositTotal (from beverages)
+          if (item.bottleDepositTotal && typeof item.bottleDepositTotal === 'number') {
+            return sum + item.bottleDepositTotal;
+          }
+          return sum;
+        }, 0);
+        
+        return total + depositTotal;
+      } catch (error) {
+        console.error("Error calculating unrefunded bottle deposits:", error, sale);
+        return total;
+      }
+    }, 0);
+  }, [sales]);
+
   // Ensure GCASH product exists
   useEffect(() => {
     const ensureGcashProduct = async () => {
@@ -224,9 +305,13 @@ const Index = () => {
           ...updated[existingIndex],
           quantity: updated[existingIndex].quantity + quantity,
         };
+        // Track the last modified product
+        lastModifiedProductIdRef.current = product.id;
         return updated;
       }
 
+      // Track the last added product
+      lastModifiedProductIdRef.current = product.id;
       return [...prev, { product, quantity }];
     });
   }, [setOrderItems]);
@@ -263,27 +348,20 @@ const Index = () => {
       }
     }
     
-    if (shouldShowQtyDialog(product.id)) {
-      setSelectedProduct(product);
-    } else {
-      addToCart(product, 1);
-    }
+    // Add directly to cart with quantity 1 (skip quantity dialog)
+    addToCart(product, 1);
+    // Clear search query but don't focus search input - allow arrow keys to work on cart
     setSearchQuery("");
-  }, [shouldShowQtyDialog, addToCart, toast]);
+    // Blur search input if it's focused
+    if (searchInputRef.current) {
+      searchInputRef.current.blur();
+    }
+  }, [addToCart, toast]);
 
   const handleAddNewProduct = useCallback((name: string) => {
     setNewProductName(name);
     setSearchQuery("");
   }, []);
-
-  const handleQuantityConfirm = useCallback(
-    (quantity: number) => {
-      if (!selectedProduct) return;
-      addToCart(selectedProduct, quantity);
-      setSelectedProduct(null);
-    },
-    [selectedProduct, addToCart]
-  );
 
   const handleNewProductConfirm = useCallback(
     async (name: string, price: number | undefined, category?: string, stockQuantity?: number) => {
@@ -309,7 +387,8 @@ const Index = () => {
       const result = await addProduct(productData as Omit<Product, "id">);
       setNewProductName(null);
       if (result.success && result.product) {
-        setSelectedProduct(result.product);
+        // Add the newly created product directly to cart
+        addToCart(result.product, 1);
         toast({
           title: "Product added",
           description: price !== undefined 
@@ -489,27 +568,169 @@ const Index = () => {
     }
   }, [addFunds, toast]);
 
-  // Global Enter key to trigger checkout when nothing is focused
+  // Handle keyboard shortcuts for recently added item
+  const handleRecentlyAddedItemAction = useCallback((action: 'delete' | 'increase' | 'decrease') => {
+    if (orderItems.length === 0) return;
+    
+    // Find the last modified item, or use the last item in the array as fallback
+    let targetItem: OrderItem | null = null;
+    let targetIndex = -1;
+    
+    if (lastModifiedProductIdRef.current) {
+      // Find the item with the last modified product ID
+      targetIndex = orderItems.findIndex(
+        (item) => item.product.id === lastModifiedProductIdRef.current
+      );
+      if (targetIndex >= 0) {
+        targetItem = orderItems[targetIndex];
+      }
+    }
+    
+    // Fallback to last item if last modified item not found
+    if (!targetItem && orderItems.length > 0) {
+      targetIndex = orderItems.length - 1;
+      targetItem = orderItems[targetIndex];
+      // Update ref to track this item
+      if (targetItem) {
+        lastModifiedProductIdRef.current = targetItem.product.id;
+      }
+    }
+    
+    if (!targetItem) return;
+    
+    if (action === 'delete') {
+      // Remove the item completely
+      setOrderItems((prev) => prev.filter((_, index) => index !== targetIndex));
+      lastModifiedProductIdRef.current = null;
+    } else if (action === 'increase') {
+      // Increase quantity by 1
+      setOrderItems((prev) =>
+        prev.map((item, index) =>
+          index === targetIndex ? { ...item, quantity: item.quantity + 1 } : item
+        )
+      );
+    } else if (action === 'decrease') {
+      // Decrease quantity by 1, remove if reaches 0
+      const newQuantity = targetItem.quantity - 1;
+      if (newQuantity <= 0) {
+        setOrderItems((prev) => prev.filter((_, index) => index !== targetIndex));
+        lastModifiedProductIdRef.current = null;
+      } else {
+        setOrderItems((prev) =>
+          prev.map((item, index) =>
+            index === targetIndex ? { ...item, quantity: newQuantity } : item
+          )
+        );
+      }
+    }
+  }, [orderItems, setOrderItems]);
+
+  // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
-        const activeElement = document.activeElement;
-        const isInputFocused = activeElement instanceof HTMLInputElement ||
-          activeElement instanceof HTMLTextAreaElement ||
-          activeElement instanceof HTMLButtonElement ||
-          activeElement?.getAttribute("role") === "button";
-        
-        // Only trigger checkout if no input/button is focused and no dialogs are open
-        if (!isInputFocused && !showPayment && !receiptItems && !selectedProduct && !newProductName) {
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement;
+      const isButtonFocused = activeElement instanceof HTMLButtonElement ||
+        activeElement?.getAttribute("role") === "button";
+      
+      // Arrow Up/Down should work directly on cart even when dialogs might be open
+      // (except when input is focused or critical dialogs are open)
+      const canHandleArrowKeys = !isInputFocused && 
+        !showPayment && 
+        !receiptItems &&
+        !showGcashDialog &&
+        !showAddFundsDialog;
+      
+      // Handle Arrow Up - increase quantity of recently added item (works directly on cart)
+      if (e.key === "ArrowUp" && canHandleArrowKeys) {
+        e.preventDefault();
+        handleRecentlyAddedItemAction('increase');
+        return;
+      }
+      
+      // Handle Arrow Down - decrease quantity of recently added item (works directly on cart)
+      if (e.key === "ArrowDown" && canHandleArrowKeys) {
+        e.preventDefault();
+        handleRecentlyAddedItemAction('decrease');
+        return;
+      }
+      
+      // Handle letter/number keys - focus search input and append character
+      // Only if not already in an input and no critical dialogs are open
+      if (!isInputFocused && 
+          !isButtonFocused &&
+          !showPayment && 
+          !receiptItems && 
+          !newProductName &&
+          !showGcashDialog &&
+          !showAddFundsDialog &&
+          e.key.length === 1 && 
+          /[a-zA-Z0-9]/.test(e.key) &&
+          !e.ctrlKey && 
+          !e.metaKey && 
+          !e.altKey) {
+        e.preventDefault();
+        // Focus search input and append the typed character
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          setSearchQuery((prev) => prev + e.key);
+        }
+        return;
+      }
+      
+      // Only handle other shortcuts if no input/button is focused and no dialogs are open
+      const canHandleShortcuts = !isInputFocused && 
+        !isButtonFocused &&
+        !showPayment && 
+        !receiptItems && 
+        !newProductName &&
+        !showGcashDialog &&
+        !showAddFundsDialog;
+      
+      if (!canHandleShortcuts) {
+        // Still handle Enter for checkout if button is focused, but NOT if search input is focused
+        // Check if search input is focused to prevent triggering checkout when selecting products
+        const isSearchInputFocused = searchInputRef.current === document.activeElement;
+        if (e.key === "Enter" && 
+            !isInputFocused && 
+            !isSearchInputFocused &&
+            !showPayment && 
+            !receiptItems && 
+            !newProductName) {
           e.preventDefault();
           handleCheckout();
         }
+        return;
+      }
+      
+      // Handle Backspace or Delete - remove recently added item
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        handleRecentlyAddedItemAction('delete');
+        return;
+      }
+      
+      // Handle Enter - trigger checkout (only if search input is not focused)
+      // Check if search input is focused to prevent triggering checkout when selecting products
+      const isSearchInputFocused = searchInputRef.current === document.activeElement;
+      if (e.key === "Enter" && !isSearchInputFocused) {
+        e.preventDefault();
+        handleCheckout();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showPayment, receiptItems, selectedProduct, newProductName, handleCheckout]);
+  }, [
+    showPayment, 
+    receiptItems, 
+    newProductName, 
+    showGcashDialog, 
+    showAddFundsDialog, 
+    handleCheckout, 
+    handleRecentlyAddedItemAction,
+  ]);
 
   if (isLoading) {
     return (
@@ -562,6 +783,28 @@ const Index = () => {
                   GCASH-CNV: ₱{totalGCashServiceFees.toFixed(2)}
                 </button>
               )}
+              
+              {/* Bottle Deposit Badge (Total unrefunded bottle deposits) */}
+              {totalUnrefundedBottleDeposits > 0 && (
+                <button
+                  onClick={() => setShowBottleDepositRefundDialog(true)}
+                  className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-warning/20 text-warning border border-warning/30 hover:bg-warning/30 transition-colors cursor-pointer"
+                  title="Click to refund bottle deposits"
+                >
+                  <CircleDot className="w-3 h-3" />
+                  Bottle Deposit: ₱{totalUnrefundedBottleDeposits.toFixed(2)}
+                </button>
+              )}
+              
+              {/* Store Funds Badge */}
+              <button
+                onClick={() => setShowStoreFundsHistoryDialog(true)}
+                className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 transition-colors cursor-pointer"
+                title="Click to view store funds"
+              >
+                <Wallet className="w-3 h-3" />
+                Store Funds: ₱{storeFunds.toFixed(2)}
+              </button>
               
               {/* Pending sync button */}
               {pendingSalesCount > 0 && (
@@ -642,6 +885,24 @@ const Index = () => {
                   CNV: ₱{totalGCashServiceFees.toFixed(2)}
                 </button>
               )}
+              {totalUnrefundedBottleDeposits > 0 && (
+                <button
+                  onClick={() => setShowBottleDepositRefundDialog(true)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-warning/20 text-warning border border-warning/30 hover:bg-warning/30 transition-colors cursor-pointer"
+                  title="Click to refund bottle deposits"
+                >
+                  <CircleDot className="w-3 h-3" />
+                  Deposit: ₱{totalUnrefundedBottleDeposits.toFixed(2)}
+                </button>
+              )}
+              <button
+                onClick={() => setShowStoreFundsDialog(true)}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 transition-colors cursor-pointer"
+                title="Click to manage store funds"
+              >
+                <Wallet className="w-3 h-3" />
+                Funds: ₱{storeFunds.toFixed(2)}
+              </button>
               <Link to="/products">
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
                   <Package className="w-3 h-3 mr-1" />
@@ -677,6 +938,7 @@ const Index = () => {
                 onProductSelect={handleProductSelect}
                 onAddNewProduct={handleAddNewProduct}
                 onCheckout={handleCheckout}
+                searchInputRef={searchInputRef}
               />
             </div>
 
@@ -755,12 +1017,6 @@ const Index = () => {
         />
       </div>
 
-      {/* Quantity Dialog */}
-      <QuantityDialog
-        product={selectedProduct}
-        onConfirm={handleQuantityConfirm}
-        onCancel={() => setSelectedProduct(null)}
-      />
 
       {/* Add Product Dialog */}
       {newProductName && (
@@ -774,7 +1030,10 @@ const Index = () => {
       {/* Payment Dialog */}
       {showPayment && (
         <PaymentDialog
-          total={orderItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0)}
+          subtotal={subtotal}
+          bottleDeposit={calculateBottleDeposit.total}
+          bottleDepositBreakdown={calculateBottleDeposit.breakdown}
+          total={totalWithBottleDeposit}
           onConfirm={handlePaymentConfirm}
           onCancel={handlePaymentCancel}
         />
@@ -815,6 +1074,45 @@ const Index = () => {
         <GCashTransactionsDialog
           sales={sales}
           onClose={() => setShowGCashTransactionsDialog(false)}
+        />
+      )}
+
+      {/* Bottle Deposit Refund Dialog */}
+      {showBottleDepositRefundDialog && (
+        <BottleDepositRefundDialog
+          sales={sales}
+          onClose={() => setShowBottleDepositRefundDialog(false)}
+          onRefunded={async () => {
+            await loadSales();
+            setShowBottleDepositRefundDialog(false);
+          }}
+        />
+      )}
+
+      {/* Store Funds Dialog */}
+      {showStoreFundsDialog && (
+        <StoreFundsDialog
+          currentBalance={storeFunds}
+          onConfirm={async (type, amount, notes, category) => {
+            const result = type === "add" 
+              ? await addStoreFunds(amount, notes, category)
+              : await withdrawStoreFunds(amount, notes, category);
+            
+            if (result.success) {
+              await refreshStoreFunds();
+            }
+            return result;
+          }}
+          onCancel={() => setShowStoreFundsDialog(false)}
+        />
+      )}
+
+      {/* Store Funds History Dialog */}
+      {showStoreFundsHistoryDialog && (
+        <StoreFundsHistoryDialog
+          balance={storeFunds}
+          transactions={storeFundsHistory}
+          onClose={() => setShowStoreFundsHistoryDialog(false)}
         />
       )}
     </div>

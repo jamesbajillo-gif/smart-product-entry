@@ -218,6 +218,7 @@ export interface SaleRecord {
   payment_method: string;
   amount_tendered?: number;
   change_amount?: number;
+  bottle_deposit_refunded?: number; // 0 = not refunded, 1 = refunded
   created_at?: string;
 }
 
@@ -300,6 +301,17 @@ export const salesApi = {
         ? `Successfully deleted ${successCount} sale(s)`
         : `Deleted ${successCount} sale(s), ${failedCount} failed`,
     };
+  },
+
+  updateRefundStatus: async (id: number, refunded: boolean) => {
+    const result = await apiRequest("PUT", {
+      table: "sales",
+      id,
+      data: {
+        bottle_deposit_refunded: refunded ? 1 : 0,
+      },
+    });
+    return result;
   },
 };
 
@@ -639,6 +651,107 @@ export const expensesApi = {
   },
 };
 
+// Store Funds API
+export interface StoreFundTransaction {
+  id?: number;
+  transaction_type: "add" | "withdraw" | "expense" | "income";
+  amount: number;
+  balance_after: number;
+  notes?: string;
+  category?: string;
+  created_at?: string;
+}
+
+export const storeFundsApi = {
+  // Get current balance (sum of all transactions)
+  getBalance: async () => {
+    const result = await apiRequest<StoreFundTransaction[]>("GET", {
+      table: "store_funds",
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit: 1,
+    });
+    
+    if (result.success && result.data && result.data.length > 0) {
+      return { success: true, balance: result.data[0].balance_after };
+    }
+    return { success: true, balance: 0 };
+  },
+
+  // Get transaction history
+  getHistory: async (limit = 100) => {
+    const result = await apiRequest<StoreFundTransaction[]>("GET", {
+      table: "store_funds",
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit,
+    });
+    return result;
+  },
+
+  // Add funds
+  addFunds: async (amount: number, notes?: string, category?: string) => {
+    // Get current balance
+    const balanceResult = await storeFundsApi.getBalance();
+    const currentBalance = balanceResult.balance || 0;
+    const newBalance = currentBalance + amount;
+
+    const transaction: Omit<StoreFundTransaction, "id" | "created_at"> = {
+      transaction_type: "add",
+      amount,
+      balance_after: newBalance,
+      notes,
+      category,
+    };
+
+    const result = await apiRequest<{ id: number }>("POST", {
+      table: "store_funds",
+      data: transaction,
+    });
+
+    if (result.success && result.id) {
+      return {
+        success: true,
+        transaction: { ...transaction, id: result.id, created_at: formatMySQLDateTime(new Date()) } as StoreFundTransaction,
+      };
+    }
+    return { success: false, error: result.error || "Failed to add funds" };
+  },
+
+  // Withdraw funds
+  withdrawFunds: async (amount: number, notes?: string, category?: string) => {
+    // Get current balance
+    const balanceResult = await storeFundsApi.getBalance();
+    const currentBalance = balanceResult.balance || 0;
+    
+    if (currentBalance < amount) {
+      return { success: false, error: "Insufficient store funds" };
+    }
+
+    const newBalance = currentBalance - amount;
+
+    const transaction: Omit<StoreFundTransaction, "id" | "created_at"> = {
+      transaction_type: "withdraw",
+      amount,
+      balance_after: newBalance,
+      notes,
+      category,
+    };
+
+    const result = await apiRequest<{ id: number }>("POST", {
+      table: "store_funds",
+      data: transaction,
+    });
+
+    if (result.success && result.id) {
+      return {
+        success: true,
+        transaction: { ...transaction, id: result.id, created_at: formatMySQLDateTime(new Date()) } as StoreFundTransaction,
+      };
+    }
+    return { success: false, error: result.error || "Failed to withdraw funds" };
+  },
+};
 
 export const generateAlterTableSQL = (tableName: string, missingColumns: string[]): string => {
   const schema = REQUIRED_SCHEMA[tableName as keyof typeof REQUIRED_SCHEMA];
@@ -693,6 +806,7 @@ export const REQUIRED_SCHEMA = {
       { name: "payment_method", type: "VARCHAR(50) NOT NULL" },
       { name: "amount_tendered", type: "DECIMAL(10,2)" },
       { name: "change_amount", type: "DECIMAL(10,2)" },
+      { name: "bottle_deposit_refunded", type: "TINYINT(1) DEFAULT 0" },
       { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
     ],
     createSQL: `CREATE TABLE IF NOT EXISTS sales (
@@ -702,6 +816,7 @@ export const REQUIRED_SCHEMA = {
       payment_method VARCHAR(50) NOT NULL,
       amount_tendered DECIMAL(10,2),
       change_amount DECIMAL(10,2),
+      bottle_deposit_refunded TINYINT(1) DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
   },
@@ -778,6 +893,29 @@ export const REQUIRED_SCHEMA = {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_product_id (product_id),
       INDEX idx_supplier (supplier),
+      INDEX idx_created_at (created_at)
+    )`,
+  },
+  store_funds: {
+    tableName: "store_funds",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "transaction_type", type: "ENUM('add', 'withdraw', 'expense', 'income') NOT NULL" },
+      { name: "amount", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "balance_after", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "notes", type: "TEXT" },
+      { name: "category", type: "VARCHAR(100)" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS store_funds (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transaction_type ENUM('add', 'withdraw', 'expense', 'income') NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      balance_after DECIMAL(10,2) NOT NULL,
+      notes TEXT,
+      category VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_transaction_type (transaction_type),
       INDEX idx_created_at (created_at)
     )`,
   },

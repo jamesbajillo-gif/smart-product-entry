@@ -13,7 +13,9 @@ interface ReceiptDialogProps {
 
 export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogProps) {
   const { toast } = useToast();
-  const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const subtotal = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const bottleDeposit = paymentDetails.bottleDeposit || 0;
+  const total = subtotal + bottleDeposit;
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const now = new Date();
 
@@ -102,6 +104,32 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
             <span>Items</span>
             <span>{itemCount}</span>
           </div>
+
+          <div className="flex justify-between text-muted-foreground text-xs mb-1">
+            <span>Subtotal</span>
+            <span>₱{subtotal.toFixed(2)}</span>
+          </div>
+
+          {bottleDeposit > 0 && (
+            <>
+              <div className="flex justify-between text-info text-xs mb-1">
+                <span>Bottle Deposit</span>
+                <span>₱{bottleDeposit.toFixed(2)}</span>
+              </div>
+              {paymentDetails.bottleDepositBreakdown && paymentDetails.bottleDepositBreakdown.length > 0 && (
+                <div className="ml-4 space-y-0.5 mb-1">
+                  {paymentDetails.bottleDepositBreakdown.map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                      <span>{item.productName} × {item.quantity} @ ₱{item.deposit.toFixed(2)}</span>
+                      <span>₱{item.total.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="divider border-t border-dashed border-border my-2" />
 
           <div className="total flex justify-between text-lg font-bold text-foreground">
             <span>TOTAL</span>
