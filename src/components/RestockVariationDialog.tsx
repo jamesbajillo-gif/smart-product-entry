@@ -62,26 +62,27 @@ export function RestockVariationDialog({
     
     // If it's a string, try to parse it
     if (typeof product.variations === 'string') {
+      const variationsStr = product.variations as string;
       // Check if it's an empty string
-      if (product.variations.trim() === '' || product.variations === 'null' || product.variations === 'undefined') {
+      if (variationsStr.trim() === '' || variationsStr === 'null' || variationsStr === 'undefined') {
         console.log('RestockVariationDialog: Variations string is empty or null');
         return [];
       }
       
       try {
-        const parsed = JSON.parse(product.variations);
+        const parsed = JSON.parse(variationsStr);
         console.log('RestockVariationDialog: Parsed from string', parsed);
         if (Array.isArray(parsed)) {
           // Validate array structure
-          const validVariations = parsed.filter(v => 
-            v && typeof v === 'object' && v.id && typeof v.price === 'number'
+          const validVariations = parsed.filter((v: unknown) => 
+            v && typeof v === 'object' && (v as ProductVariation).id && typeof (v as ProductVariation).price === 'number'
           );
           return validVariations;
         }
         console.warn('RestockVariationDialog: Parsed value is not an array', parsed);
         return [];
       } catch (e) {
-        console.error('RestockVariationDialog: Failed to parse JSON', e, 'String was:', product.variations.substring(0, 100));
+        console.error('RestockVariationDialog: Failed to parse JSON', e, 'String was:', variationsStr.substring(0, 100));
         return [];
       }
     }
@@ -143,6 +144,7 @@ export function RestockVariationDialog({
   };
 
   const handleStockConfirm = (
+    _variationId: string | null,
     type: 'add' | 'remove' | 'set',
     quantity: number,
     reason: string,

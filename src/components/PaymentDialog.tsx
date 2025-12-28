@@ -229,8 +229,8 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
                   step="0.01"
                   value={amountTendered}
                   onChange={(e) => setAmountTendered(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (selectedMethod === "gcash" || isValidCashAmount)) {
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" && isValidCashAmount) {
                       e.preventDefault();
                       handleConfirm();
                     }

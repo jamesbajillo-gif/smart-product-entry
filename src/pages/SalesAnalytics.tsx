@@ -265,6 +265,8 @@ export default function SalesAnalytics() {
           profitMargin: 0,
           saleCount: 0,
           lastSaleDate: saleDate,
+          salesVelocity: 0,
+          salesFrequency: 0,
         };
 
         // For Service Charge in GCash transactions, count as revenue
@@ -309,6 +311,8 @@ export default function SalesAnalytics() {
           profit: -expenseCost,
           profitMargin: 0,
           saleCount: 0,
+          salesVelocity: 0,
+          salesFrequency: 0,
         });
       }
     });

@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Product } from "@/types/product";
 import { expensesApi } from "@/services/mysqlApi";
 import { useToast } from "@/hooks/use-toast";
-import { PaymentSource } from "@/hooks/useAvailableFunds";
+import { useStoreFunds } from "@/hooks/useStoreFunds";
+
+type PaymentSource = "cash" | "store_funds" | "gcash" | "current_sales";
 
 interface AddExpenseDialogProps {
   product: Product;
@@ -26,7 +28,7 @@ export function AddExpenseDialog({ product, availableFunds, onClose, onSuccess }
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [paymentSource, setPaymentSource] = useState<PaymentSource>("cash");
-  const { addFunds: addStoreFunds, withdrawFunds: withdrawStoreFunds, refresh: refreshStoreFunds } = useStoreFunds();
+  const { withdrawFunds: withdrawStoreFunds, refresh: refreshStoreFunds } = useStoreFunds();
   const quantityRef = useRef<HTMLInputElement>(null);
   const unitCostRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
