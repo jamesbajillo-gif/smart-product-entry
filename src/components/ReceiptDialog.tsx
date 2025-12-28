@@ -51,7 +51,7 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-full max-w-md mx-4 animate-scale-in">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-primary">
             <CheckCircle className="w-5 h-5" />

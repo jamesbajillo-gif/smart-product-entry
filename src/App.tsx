@@ -8,6 +8,7 @@ import Index from "./pages/Index";
 import SalesHistory from "./pages/SalesHistory";
 import SalesAnalytics from "./pages/SalesAnalytics";
 import ProductManagement from "./pages/ProductManagement";
+import Settings from "./pages/Settings";
 import DatabaseSetup from "./pages/DatabaseSetup";
 import NotFound from "./pages/NotFound";
 
@@ -25,6 +26,7 @@ const App = () => (
             <Route path="/sales" element={<SalesHistory />} />
             <Route path="/analytics" element={<SalesAnalytics />} />
             <Route path="/products" element={<ProductManagement />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/database" element={<DatabaseSetup />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

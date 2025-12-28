@@ -8,14 +8,31 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
 const ADMIN_PASSWORD = "kainkatae";
 const LIMITED_PASSWORD = "mytch";
 const AUTH_KEY = "app-authenticated";
 const USER_ROLE_KEY = "app-user-role";
+const OPERATOR_KEY = "app-operator";
 
 export type UserRole = "admin" | "limited";
+
+// List of operators
+const OPERATORS = [
+  "mytch",
+  "moi",
+  "keysia",
+  "shems",
+  "sheena",
+];
 
 interface PasswordProtectionProps {
   children: React.ReactNode;
@@ -24,6 +41,7 @@ interface PasswordProtectionProps {
 export const PasswordProtection = ({ children }: PasswordProtectionProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
+  const [operator, setOperator] = useState("");
   const [error, setError] = useState("");
   const { toast } = useToast();
 
@@ -39,21 +57,34 @@ export const PasswordProtection = ({ children }: PasswordProtectionProps) => {
     e.preventDefault();
     setError("");
 
+    // Validate operator selection
+    if (!operator) {
+      setError("Please select an operator.");
+      toast({
+        title: "Operator Required",
+        description: "Please select an operator before entering password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (password === ADMIN_PASSWORD) {
       sessionStorage.setItem(AUTH_KEY, "true");
       sessionStorage.setItem(USER_ROLE_KEY, "admin");
+      sessionStorage.setItem(OPERATOR_KEY, operator);
       setIsAuthenticated(true);
       toast({
         title: "Access granted",
-        description: "Welcome to the application (Admin access).",
+        description: `Welcome ${operator} (Admin access).`,
       });
     } else if (password === LIMITED_PASSWORD) {
       sessionStorage.setItem(AUTH_KEY, "true");
       sessionStorage.setItem(USER_ROLE_KEY, "limited");
+      sessionStorage.setItem(OPERATOR_KEY, operator);
       setIsAuthenticated(true);
       toast({
         title: "Access granted",
-        description: "Welcome to the application (Limited access - deletion disabled).",
+        description: `Welcome ${operator} (Limited access - deletion disabled).`,
       });
     } else {
       setError("Incorrect password. Please try again.");
@@ -79,6 +110,26 @@ export const PasswordProtection = ({ children }: PasswordProtectionProps) => {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">
+              Operator
+            </label>
+            <Select value={operator} onValueChange={setOperator}>
+              <SelectTrigger className={error && !operator ? "border-red-500" : ""}>
+                <SelectValue placeholder="Select operator" />
+              </SelectTrigger>
+              <SelectContent>
+                {OPERATORS.map((op) => (
+                  <SelectItem key={op} value={op}>
+                    {op}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">
+              Password
+            </label>
             <Input
               type="password"
               placeholder="Enter password"
@@ -87,12 +138,12 @@ export const PasswordProtection = ({ children }: PasswordProtectionProps) => {
                 setPassword(e.target.value);
                 setError("");
               }}
-              autoFocus
+              autoFocus={!!operator}
               className={error ? "border-red-500" : ""}
             />
             {error && <p className="text-sm text-red-500">{error}</p>}
           </div>
-          <Button type="submit" className="w-full">
+          <Button type="submit" className="w-full" disabled={!operator}>
             Enter
           </Button>
         </form>

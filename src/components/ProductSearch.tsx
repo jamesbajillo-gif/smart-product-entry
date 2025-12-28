@@ -43,9 +43,53 @@ export function ProductSearch({
     if (!query) return [];
     
     // Filter products that match the search query
-    return products.filter((product) =>
-      product.name.toLowerCase().includes(query)
-    );
+    // Exclude parent products that have no price, BUT keep products that have variations with prices
+    return products.filter((product) => {
+      // Check if product name matches
+      const productNameMatches = product.name.toLowerCase().includes(query);
+      
+      // Check if any variation name matches
+      const variations = product.variations || [];
+      let variationNameMatches = false;
+      
+      if (Array.isArray(variations)) {
+        variationNameMatches = variations.some((v: any) => {
+          if (v && v.name && typeof v.name === 'string') {
+            return v.name.toLowerCase().includes(query);
+          }
+          return false;
+        });
+      } else if (typeof variations === 'string') {
+        try {
+          const parsed = JSON.parse(variations);
+          if (Array.isArray(parsed)) {
+            variationNameMatches = parsed.some((v: any) => {
+              if (v && v.name && typeof v.name === 'string') {
+                return v.name.toLowerCase().includes(query);
+              }
+              return false;
+            });
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+      
+      // Match if either product name or variation name matches
+      const matchesQuery = productNameMatches || variationNameMatches;
+      if (!matchesQuery) return false;
+      
+      // If product has a price, include it
+      if (product.price != null && product.price > 0) {
+        return true;
+      }
+      
+      // If product has no price, check if it has variations with prices
+      const hasVariationsWithPrices = variations.some((v: any) => v && v.price != null && v.price > 0);
+      
+      // Include product if it has variations with prices (even if parent has no price)
+      return hasVariationsWithPrices;
+    });
   }, [products, searchQuery]);
 
   // Group products by category, and within category, group by name to show price variations
@@ -83,17 +127,24 @@ export function ProductSearch({
     groupedProducts.forEach(({ products: categoryProducts }) => {
       categoryProducts.forEach((product) => {
         const variations = product.variations || [];
-        // Add base product
-        flat.push(product);
-        // Add variations
+        const parentHasPrice = product.price != null && product.price > 0;
+        
+        // Add base product only if it has a price
+        if (parentHasPrice) {
+          flat.push(product);
+        }
+        
+        // Add variations that have prices
         variations.forEach(v => {
-          flat.push({
-            ...product,
-            id: `${product.id}-${v.id || v.name}`,
-            name: product.name, // Keep base product name
-            price: v.price,
-            stock_quantity: v.stock_quantity,
-          });
+          if (v.price != null && v.price > 0) {
+            flat.push({
+              ...product,
+              id: `${product.id}-${v.id || v.name}`,
+              name: product.name, // Keep base product name
+              price: v.price,
+              stock_quantity: v.stock_quantity,
+            });
+          }
         });
       });
     });
@@ -225,10 +276,15 @@ export function ProductSearch({
                 {categoryProducts.flatMap((product) => {
                   const variations = product.variations || [];
                   
-                  // Create array with base product and all variations
+                  // Check if parent product has a price
+                  const parentHasPrice = product.price != null && product.price > 0;
+                  
+                  // Create array with base product (only if it has a price) and all variations with prices
                   const itemsToShow = [
-                    { product, isVariation: false, variation: null },
-                    ...variations.map(v => {
+                    // Only include base product if it has a price
+                    ...(parentHasPrice ? [{ product, isVariation: false, variation: null }] : []),
+                    // Include all variations that have prices
+                    ...variations.filter(v => v.price != null && v.price > 0).map(v => {
                       // Check if variation name is auto-generated (contains price pattern)
                       // Auto-generated format: "Product Name - ₱X.XX"
                       const variationName = v.name && v.name.trim() ? v.name.trim() : '';

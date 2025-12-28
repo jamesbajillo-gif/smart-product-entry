@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { Product, ProductVariation } from "@/types/product";
 import { Button } from "@/components/ui/button";
-import { X, Package, Truck, Box, Layers, Wallet, Banknote, Smartphone, Receipt } from "lucide-react";
+import { X, Package, Truck, Box, Layers, Wallet, Banknote, Smartphone, Receipt, Plus } from "lucide-react";
 import { PaymentSource } from "@/hooks/useAvailableFunds";
+import { expensesApi } from "@/services/mysqlApi";
 
 export interface RestockData {
   quantity: number;
@@ -190,6 +191,28 @@ export function StockAdjustmentDialog({
   const [piecePrice, setPiecePrice] = useState("");
   const [supplier, setSupplier] = useState("");
   const [notes, setNotes] = useState("");
+  const [suppliers, setSuppliers] = useState<string[]>([]);
+  const [showNewSupplier, setShowNewSupplier] = useState(false);
+  const [newSupplier, setNewSupplier] = useState("");
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+  
+  // Load suppliers when dialog opens
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      setIsLoadingSuppliers(true);
+      try {
+        const result = await expensesApi.getSuppliers();
+        if (result.success && result.data) {
+          setSuppliers(result.data);
+        }
+      } catch (error) {
+        console.error("Error loading suppliers:", error);
+      } finally {
+        setIsLoadingSuppliers(false);
+      }
+    };
+    loadSuppliers();
+  }, []);
   
   // Force cigarettes to use bulk mode with pack and 20 units
   // Force Redhorse Mucho to use bulk mode with case and 6 units
@@ -262,9 +285,13 @@ export function StockAdjustmentDialog({
       paymentSource,
     };
     
-    const reason = supplier 
-      ? `Restock from ${supplier}${mode === 'bulk' ? ` (${packageCount} ${packagingType}s)` : ''}`
+    const selectedSupplier = showNewSupplier ? newSupplier.trim() : supplier;
+    const reason = selectedSupplier 
+      ? `Restock from ${selectedSupplier}${mode === 'bulk' ? ` (${packageCount} ${packagingType}s)` : ''}`
       : `Restock${mode === 'bulk' ? ` (${packageCount} ${packagingType}s)` : ''}`;
+    
+    // Update restockData with selected supplier
+    restockData.supplier = selectedSupplier;
     
     onConfirm(selectedVariationId, 'add', quantity, reason, restockData);
   };
@@ -276,7 +303,7 @@ export function StockAdjustmentDialog({
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 max-w-md w-full mx-4 animate-scale-in max-h-[90vh] overflow-y-auto">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-2xl mx-4 animate-scale-in max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-success/20 rounded-lg">
@@ -552,18 +579,58 @@ export function StockAdjustmentDialog({
             </>
           )}
 
-          {/* Supplier Input */}
+          {/* Supplier Selection */}
           <div>
             <label className="text-sm text-muted-foreground block mb-2">
               Supplier
             </label>
-            <input
-              type="text"
-              value={supplier}
-              onChange={(e) => setSupplier(e.target.value)}
-              placeholder="e.g., ABC Distributors, Local Market..."
-              className="w-full px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
+            {showNewSupplier ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newSupplier}
+                  onChange={(e) => setNewSupplier(e.target.value)}
+                  placeholder="Enter new supplier name"
+                  className="flex-1 px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  autoFocus
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowNewSupplier(false);
+                    setNewSupplier("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  value={supplier}
+                  onChange={(e) => setSupplier(e.target.value)}
+                  disabled={isLoadingSuppliers}
+                  className="flex-1 px-4 py-2 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <option value="">Select supplier...</option>
+                  {suppliers.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowNewSupplier(true)}
+                  className="gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  New
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Notes Input */}

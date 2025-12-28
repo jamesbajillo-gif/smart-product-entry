@@ -51,7 +51,7 @@ export function StockHistoryDialog({ product, onClose }: StockHistoryDialogProps
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] flex flex-col animate-scale-in">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-4xl mx-4 max-h-[90vh] flex flex-col animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">

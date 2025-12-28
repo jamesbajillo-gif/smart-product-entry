@@ -215,7 +215,7 @@ export function RestockVariationDialog({
   console.log('Rendering RestockVariationDialog with dropdown');
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 max-w-md w-full mx-4 animate-scale-in">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-2xl mx-4 animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-success/20 rounded-lg">

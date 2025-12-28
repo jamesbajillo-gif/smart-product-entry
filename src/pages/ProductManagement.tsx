@@ -1,14 +1,26 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { stockApi, RestockInfo, productsApi } from "@/services/mysqlApi";
+import { stockApi, RestockInfo, productsApi, expensesApi } from "@/services/mysqlApi";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
-import { Product, PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
+import { Product, PRODUCT_CATEGORIES, ProductCategory, ProductSupplier, ProductService } from "@/types/product";
+import { getAllCategories, addCustomCategory } from "@/utils/categories";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { StockAdjustmentDialog, RestockData } from "@/components/StockAdjustmentDialog";
 import { StockHistoryDialog } from "@/components/StockHistoryDialog";
 import { AddExpenseDialog } from "@/components/AddExpenseDialog";
 import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
 import { AddProductVariationDialog } from "@/components/AddProductVariationDialog";
+import { EditVariationDialog } from "@/components/EditVariationDialog";
 import { HistoryDialog } from "@/components/HistoryDialog";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
@@ -18,7 +30,6 @@ import {
   Package,
   Plus,
   Pencil,
-  Trash2,
   Save,
   X,
   RefreshCw,
@@ -36,6 +47,9 @@ import {
   Truck,
   Receipt,
   Layers,
+  Edit,
+  Settings,
+  Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPermissions } from "@/hooks/useUserPermissions";
@@ -61,11 +75,18 @@ export default function ProductManagement() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editPrice, setEditPrice] = useState("");
-  const [editCategory, setEditCategory] = useState<ProductCategory>("Other");
+  const [editCategory, setEditCategory] = useState<ProductCategory | string>("Other");
+  const [showEditNewCategory, setShowEditNewCategory] = useState(false);
+  const [editNewCategory, setEditNewCategory] = useState("");
+  const [allCategories, setAllCategories] = useState<string[]>(getAllCategories());
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editStockQuantity, setEditStockQuantity] = useState("");
   const [editLowStockThreshold, setEditLowStockThreshold] = useState("");
   const [editSkipStockTracking, setEditSkipStockTracking] = useState(false);
+  const [editSuppliers, setEditSuppliers] = useState<ProductSupplier[]>([]);
+  const [availableSuppliers, setAvailableSuppliers] = useState<string[]>([]);
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+  const [editServices, setEditServices] = useState<ProductService[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
@@ -78,15 +99,27 @@ export default function ProductManagement() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState<ProductCategory>("Beverages");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [showBulkPriceUpdate, setShowBulkPriceUpdate] = useState(false);
+  const [bulkSupplier, setBulkSupplier] = useState<ProductSupplier | null>(null);
+  const [showBulkSupplierUpdate, setShowBulkSupplierUpdate] = useState(false);
   const [stockAdjustProduct, setStockAdjustProduct] = useState<Product | null>(null);
   const [stockHistoryProduct, setStockHistoryProduct] = useState<Product | null>(null);
   const [expenseProduct, setExpenseProduct] = useState<Product | null>(null);
   const [showAddGcashFunds, setShowAddGcashFunds] = useState(false);
   const [variationProduct, setVariationProduct] = useState<Product | null>(null);
+  const [editingVariation, setEditingVariation] = useState<{ product: Product; variation: any } | null>(null);
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const { toast } = useToast();
   const { funds: gcashFunds, addFunds } = useGCashFunds();
+  
+  // Update categories list when component mounts or when new category is added
+  useEffect(() => {
+    setAllCategories(getAllCategories());
+  }, [showNewCategory, showEditNewCategory]);
 
   const lowStockCount = useMemo(() => {
     // Exclude products with skip_stock_tracking from low stock count
@@ -119,7 +152,8 @@ export default function ProductManagement() {
     });
 
     const sortedGroups: { category: string; products: Product[] }[] = [];
-    PRODUCT_CATEGORIES.forEach((cat) => {
+    // Sort by all categories (default + custom)
+    allCategories.forEach((cat) => {
       if (groups[cat]) {
         sortedGroups.push({ category: cat, products: groups[cat] });
       }
@@ -157,6 +191,26 @@ export default function ProductManagement() {
       return;
     }
 
+    // Validate price if provided
+    if (newPrice.trim()) {
+      const priceValue = parseFloat(newPrice);
+      if (isNaN(priceValue) || priceValue < 0) {
+        toast({
+          title: "Invalid Price",
+          description: "Price must be a valid number greater than or equal to 0",
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
+    // Save custom category if it's not in the default list
+    const categoryToSave = newCategory.trim() || "Other";
+    if (categoryToSave && !PRODUCT_CATEGORIES.includes(categoryToSave as ProductCategory)) {
+      addCustomCategory(categoryToSave);
+      setAllCategories(getAllCategories());
+    }
+    
     // Build product data - include skip_stock_tracking flag
     // Price is optional, defaults to 0 if not provided
     const productData: {
@@ -170,7 +224,7 @@ export default function ProductManagement() {
     } = {
       name: newName.trim(),
       price: newPrice.trim() ? parseFloat(newPrice) : 0,
-      category: newCategory,
+      category: categoryToSave,
       image_url: newImageUrl.trim() || undefined,
       skip_stock_tracking: newSkipStockTracking,
     };
@@ -198,28 +252,135 @@ export default function ProductManagement() {
     }
   };
 
-  const handleEdit = (product: Product) => {
+  const handleEdit = async (product: Product) => {
     setEditingId(product.id);
     setEditName(product.name);
     setEditPrice(product.price.toString());
-    setEditCategory(product.category || "Other");
+    const category = product.category || "Other";
+    setEditCategory(category);
+    // If category is not in default list, it's a custom category - ensure it's saved
+    if (category && !PRODUCT_CATEGORIES.includes(category as ProductCategory)) {
+      addCustomCategory(category);
+      setAllCategories(getAllCategories());
+    }
     setEditImageUrl(product.image_url || "");
     setEditStockQuantity((product.stock_quantity ?? 0).toString());
     setEditLowStockThreshold((product.low_stock_threshold ?? 5).toString());
     setEditSkipStockTracking(!!product.skip_stock_tracking);
+    
+    // Parse suppliers if it's a JSON string, otherwise use as-is
+    let parsedSuppliers: ProductSupplier[] = [];
+    if (product.suppliers) {
+      if (typeof product.suppliers === 'string') {
+        try {
+          parsedSuppliers = JSON.parse(product.suppliers);
+        } catch {
+          parsedSuppliers = [];
+        }
+      } else if (Array.isArray(product.suppliers)) {
+        parsedSuppliers = product.suppliers;
+      }
+    }
+    setEditSuppliers(parsedSuppliers);
+    
+    // Parse services if it's a JSON string, otherwise use as-is
+    let parsedServices: ProductService[] = [];
+    if (product.services) {
+      if (typeof product.services === 'string') {
+        try {
+          parsedServices = JSON.parse(product.services);
+        } catch {
+          parsedServices = [];
+        }
+      } else if (Array.isArray(product.services)) {
+        parsedServices = product.services;
+      }
+    }
+    setEditServices(parsedServices);
+    
+    // Auto-suggest services based on category if no services exist
+    if (parsedServices.length === 0) {
+      const category = (product.category || "").toLowerCase().trim();
+      if (category === "coffee") {
+        setEditServices([{
+          id: `service-${Date.now()}`,
+          name: "Timpla",
+          price: 5,
+        }]);
+      } else if (category === "cup noodle" || category === "cup noodles") {
+        setEditServices([{
+          id: `service-${Date.now()}`,
+          name: "Hot Water",
+          price: 3,
+        }]);
+      }
+    }
+    
+    // Load available suppliers from database
+    setIsLoadingSuppliers(true);
+    try {
+      const result = await expensesApi.getSuppliers();
+      if (result.success && result.data) {
+        setAvailableSuppliers(result.data);
+      }
+    } catch (error) {
+      console.error("Error loading suppliers:", error);
+    } finally {
+      setIsLoadingSuppliers(false);
+    }
   };
 
   const handleSaveEdit = async () => {
     if (!editingId || !editName.trim() || !editPrice) return;
 
+    // Validate price
+    const priceValue = parseFloat(editPrice);
+    if (isNaN(priceValue) || priceValue < 0) {
+      toast({
+        title: "Invalid Price",
+        description: "Price must be a valid number greater than or equal to 0",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate supplier prices
+    const invalidSupplier = editSuppliers.find((s) => {
+      if (!s.name.trim()) return false; // Skip empty suppliers
+      const piecePrice = s.price_per_piece ?? 0;
+      const packPrice = s.price_per_pack ?? 0;
+      return piecePrice < 0 || packPrice < 0;
+    });
+
+    if (invalidSupplier) {
+      toast({
+        title: "Invalid Supplier Price",
+        description: "Supplier prices must be greater than or equal to 0",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const validSuppliers = editSuppliers.filter((s) => s.name.trim() !== "");
+    const validServices = editServices.filter((s) => s.name.trim() !== "" && s.price > 0);
+    
+    // Save custom category if it's not in the default list
+    const categoryToSave = typeof editCategory === 'string' ? editCategory.trim() : editCategory;
+    if (categoryToSave && !PRODUCT_CATEGORIES.includes(categoryToSave as ProductCategory)) {
+      addCustomCategory(categoryToSave);
+      setAllCategories(getAllCategories());
+    }
+
     const result = await updateProduct(editingId, {
       name: editName.trim(),
-      price: parseFloat(editPrice),
-      category: editCategory,
+      price: priceValue,
+      category: categoryToSave,
       image_url: editImageUrl.trim() || undefined,
       stock_quantity: editSkipStockTracking ? undefined : (parseInt(editStockQuantity) || 0),
       low_stock_threshold: editSkipStockTracking ? undefined : (parseInt(editLowStockThreshold) || 5),
       skip_stock_tracking: editSkipStockTracking,
+      suppliers: validSuppliers.length > 0 ? validSuppliers : undefined,
+      services: validServices.length > 0 ? validServices : undefined,
     });
 
     if (result.success) {
@@ -230,7 +391,7 @@ export default function ProductManagement() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
+  const handleDeleteClick = (id: string, name: string) => {
     // Check permissions
     if (!canDelete) {
       toast({ 
@@ -241,15 +402,23 @@ export default function ProductManagement() {
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+    setProductToDelete({ id, name });
+    setDeleteDialogOpen(true);
+  };
 
-    const result = await deleteProduct(id);
+  const handleDeleteConfirm = async () => {
+    if (!productToDelete) return;
+
+    const result = await deleteProduct(productToDelete.id);
 
     if (result.success) {
       toast({ title: "Success", description: "Product deleted successfully" });
     } else {
       toast({ title: "Error", description: result.error || "Failed to delete product" });
     }
+
+    setDeleteDialogOpen(false);
+    setProductToDelete(null);
   };
 
   const handleCancelEdit = () => {
@@ -257,10 +426,85 @@ export default function ProductManagement() {
     setEditName("");
     setEditPrice("");
     setEditCategory("Other");
+    setShowEditNewCategory(false);
+    setEditNewCategory("");
     setEditImageUrl("");
     setEditStockQuantity("");
     setEditLowStockThreshold("");
     setEditSkipStockTracking(false);
+    setEditSuppliers([]);
+    setAvailableSuppliers([]);
+    setEditServices([]);
+  };
+
+  const handleAddService = () => {
+    setEditServices([
+      ...editServices,
+      {
+        id: `service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: "",
+        price: 0,
+      },
+    ]);
+  };
+
+  const handleRemoveService = (serviceId: string) => {
+    setEditServices(editServices.filter((s) => s.id !== serviceId));
+  };
+
+  const handleServiceChange = (serviceId: string, field: keyof ProductService, value: string | number) => {
+    setEditServices(
+      editServices.map((s) =>
+        s.id === serviceId
+          ? {
+              ...s,
+              [field]: field === 'price' ? (typeof value === 'number' ? value : parseFloat(value.toString()) || 0) : value,
+            }
+          : s
+      )
+    );
+  };
+
+  const handleAddSupplier = () => {
+    setEditSuppliers([
+      ...editSuppliers,
+      {
+        id: `supplier-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: "",
+        price_per_piece: undefined,
+        price_per_pack: undefined,
+      },
+    ]);
+  };
+
+  const handleRemoveSupplier = (supplierId: string) => {
+    setEditSuppliers(editSuppliers.filter((s) => s.id !== supplierId));
+  };
+
+  const handleSupplierChange = (supplierId: string, field: keyof ProductSupplier, value: string | number | undefined) => {
+    // Validate price fields
+    if (field === 'price_per_piece' || field === 'price_per_pack') {
+      const numValue = typeof value === 'string' ? parseFloat(value) : value;
+      if (numValue !== undefined && (isNaN(numValue) || numValue < 0)) {
+        toast({
+          title: "Invalid Price",
+          description: "Supplier price must be a valid number greater than or equal to 0",
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
+    setEditSuppliers(
+      editSuppliers.map((s) =>
+        s.id === supplierId
+          ? {
+              ...s,
+              [field]: value === "" ? undefined : value,
+            }
+          : s
+      )
+    );
   };
 
   // Restock from dialog - handles both base products and variations
@@ -353,6 +597,22 @@ export default function ProductManagement() {
             restockInfo
           );
 
+          // Create expense record if unit cost is provided (tagged as "restock")
+          if (restockData?.unitCost && restockData.unitCost > 0) {
+            const totalCost = quantity * restockData.unitCost;
+            await expensesApi.create({
+              product_id: stockAdjustProduct.id,
+              product_name: `${stockAdjustProduct.name} (Variation: ${variation.name || variationId})`,
+              quantity: quantity,
+              unit_cost: restockData.unitCost,
+              total_cost: totalCost,
+              supplier: restockData.supplier || undefined,
+              notes: restockData.notes || undefined,
+              category: "restock",
+              payment_source: restockData.paymentSource || "cash",
+            });
+          }
+
           const costInfo = restockData?.unitCost 
             ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
             : '';
@@ -386,6 +646,22 @@ export default function ProductManagement() {
         if (result.success) {
           const newStock = currentStock + quantity;
           await updateProduct(stockAdjustProduct.id, { stock_quantity: newStock });
+          
+          // Create expense record if unit cost is provided (tagged as "restock")
+          if (restockData?.unitCost && restockData.unitCost > 0) {
+            const totalCost = quantity * restockData.unitCost;
+            await expensesApi.create({
+              product_id: stockAdjustProduct.id,
+              product_name: stockAdjustProduct.name,
+              quantity: quantity,
+              unit_cost: restockData.unitCost,
+              total_cost: totalCost,
+              supplier: restockData.supplier || undefined,
+              notes: restockData.notes || undefined,
+              category: "restock",
+              payment_source: restockData.paymentSource || "cash",
+            });
+          }
           
           const costInfo = restockData?.unitCost 
             ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
@@ -476,6 +752,145 @@ export default function ProductManagement() {
     setSelectedIds(new Set());
   };
 
+  const handleBulkPriceUpdate = async () => {
+    if (selectedIds.size === 0 || !bulkPrice.trim()) {
+      toast({
+        title: "Error",
+        description: "Please select products and enter a price",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const priceValue = parseFloat(bulkPrice);
+    if (isNaN(priceValue) || priceValue < 0) {
+      toast({
+        title: "Invalid Price",
+        description: "Price must be a valid number greater than or equal to 0",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsBulkUpdating(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const id of selectedIds) {
+      const result = await updateProduct(id, { price: priceValue });
+      if (result.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    }
+
+    setIsBulkUpdating(false);
+
+    if (failCount === 0) {
+      toast({
+        title: "Success",
+        description: `Updated price to ₱${priceValue.toFixed(2)} for ${successCount} product${successCount > 1 ? "s" : ""}`,
+      });
+    } else {
+      toast({
+        title: "Partial Success",
+        description: `Updated ${successCount} products, ${failCount} failed`,
+      });
+    }
+
+    setSelectedIds(new Set());
+    setBulkPrice("");
+    setShowBulkPriceUpdate(false);
+  };
+
+  const handleBulkSupplierUpdate = async () => {
+    if (selectedIds.size === 0 || !bulkSupplier || !bulkSupplier.name.trim()) {
+      toast({
+        title: "Error",
+        description: "Please select products and enter supplier information",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate supplier prices
+    const piecePrice = bulkSupplier.price_per_piece ?? 0;
+    const packPrice = bulkSupplier.price_per_pack ?? 0;
+    if (piecePrice < 0 || packPrice < 0) {
+      toast({
+        title: "Invalid Supplier Price",
+        description: "Supplier prices must be greater than or equal to 0",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsBulkUpdating(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const id of selectedIds) {
+      const product = products.find(p => p.id === id);
+      if (!product) {
+        failCount++;
+        continue;
+      }
+
+      // Get existing suppliers
+      let existingSuppliers: ProductSupplier[] = [];
+      if (product.suppliers) {
+        if (typeof product.suppliers === 'string') {
+          try {
+            existingSuppliers = JSON.parse(product.suppliers);
+          } catch {
+            existingSuppliers = [];
+          }
+        } else if (Array.isArray(product.suppliers)) {
+          existingSuppliers = product.suppliers;
+        }
+      }
+
+      // Check if supplier already exists
+      const existingIndex = existingSuppliers.findIndex(s => s.name === bulkSupplier.name);
+      if (existingIndex >= 0) {
+        // Update existing supplier
+        existingSuppliers[existingIndex] = { ...bulkSupplier };
+      } else {
+        // Add new supplier
+        existingSuppliers.push({
+          ...bulkSupplier,
+          id: `supplier-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        });
+      }
+
+      const result = await updateProduct(id, { suppliers: existingSuppliers });
+      if (result.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    }
+
+    setIsBulkUpdating(false);
+
+    if (failCount === 0) {
+      toast({
+        title: "Success",
+        description: `Updated supplier for ${successCount} product${successCount > 1 ? "s" : ""}`,
+      });
+    } else {
+      toast({
+        title: "Partial Success",
+        description: `Updated ${successCount} products, ${failCount} failed`,
+      });
+    }
+
+    setSelectedIds(new Set());
+    setBulkSupplier(null);
+    setShowBulkSupplierUpdate(false);
+  };
+
   const handleRefresh = async () => {
     await refreshProducts();
     toast({ title: "Refreshed", description: "Products reloaded from database" });
@@ -512,6 +927,11 @@ export default function ProductManagement() {
             <Link to="/">
               <Button variant="ghost" size="icon">
                 <ArrowLeft className="w-5 h-5" />
+              </Button>
+            </Link>
+            <Link to="/settings">
+              <Button variant="ghost" size="icon" title="Settings">
+                <Settings className="w-5 h-5" />
               </Button>
             </Link>
             <div className="flex items-center gap-3">
@@ -635,17 +1055,79 @@ export default function ProductManagement() {
                 className="px-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 autoFocus
               />
-              <select
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value as ProductCategory)}
-                className="px-4 py-2 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {PRODUCT_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
+              {showNewCategory ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    placeholder="Enter new category"
+                    className="flex-1 px-4 py-2 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newCategory.trim()) {
+                        const newCat = newCategory.trim();
+                        addCustomCategory(newCat);
+                        setNewCategory(newCat);
+                        setShowNewCategory(false);
+                        setAllCategories(getAllCategories());
+                      } else if (e.key === "Escape") {
+                        setShowNewCategory(false);
+                        setNewCategory("Other");
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (newCategory.trim()) {
+                        const newCat = newCategory.trim();
+                        addCustomCategory(newCat);
+                        setNewCategory(newCat);
+                        setShowNewCategory(false);
+                        setAllCategories(getAllCategories());
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    Add
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowNewCategory(false);
+                      setNewCategory("Other");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    className="flex-1 px-4 py-2 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {allCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowNewCategory(true)}
+                    className="gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    New
+                  </Button>
+                </div>
+              )}
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₱</span>
                 <input
@@ -803,19 +1285,87 @@ export default function ProductManagement() {
                                     autoFocus
                                   />
                                   <div className="flex gap-2">
-                                    <select
-                                      value={editCategory}
-                                      onChange={(e) =>
-                                        setEditCategory(e.target.value as ProductCategory)
-                                      }
-                                      className="px-2 py-1 bg-input rounded text-foreground text-sm"
-                                    >
-                                      {PRODUCT_CATEGORIES.map((cat) => (
-                                        <option key={cat} value={cat}>
-                                          {cat}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    {showEditNewCategory ? (
+                                      <div className="flex gap-2 flex-1">
+                                        <input
+                                          type="text"
+                                          value={editNewCategory}
+                                          onChange={(e) => setEditNewCategory(e.target.value)}
+                                          placeholder="Enter new category"
+                                          className="flex-1 px-2 py-1 bg-input rounded text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                          autoFocus
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter" && editNewCategory.trim()) {
+                                              const newCat = editNewCategory.trim();
+                                              addCustomCategory(newCat);
+                                              setEditCategory(newCat);
+                                              setShowEditNewCategory(false);
+                                              setEditNewCategory("");
+                                              setAllCategories(getAllCategories());
+                                            } else if (e.key === "Escape") {
+                                              setShowEditNewCategory(false);
+                                              setEditNewCategory("");
+                                            }
+                                          }}
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            if (editNewCategory.trim()) {
+                                              const newCat = editNewCategory.trim();
+                                              addCustomCategory(newCat);
+                                              setEditCategory(newCat);
+                                              setShowEditNewCategory(false);
+                                              setEditNewCategory("");
+                                              setAllCategories(getAllCategories());
+                                            }
+                                          }}
+                                          className="h-8 px-2 text-xs"
+                                        >
+                                          Add
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setShowEditNewCategory(false);
+                                            setEditNewCategory("");
+                                          }}
+                                          className="h-8 px-2 text-xs"
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <select
+                                          value={editCategory}
+                                          onChange={(e) =>
+                                            setEditCategory(e.target.value)
+                                          }
+                                          className="px-2 py-1 bg-input rounded text-foreground text-sm"
+                                        >
+                                          {allCategories.map((cat) => (
+                                            <option key={cat} value={cat}>
+                                              {cat}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => setShowEditNewCategory(true)}
+                                          className="h-8 px-2 text-xs gap-1"
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                          New
+                                        </Button>
+                                      </>
+                                    )}
                                     <input
                                       type="text"
                                       value={editImageUrl}
@@ -878,18 +1428,33 @@ export default function ProductManagement() {
                                     }
                                     
                                     if (variations.length > 0) {
-                                      return (
-                                        <div className="flex flex-col gap-0.5">
-                                          {variations.map((variation, idx) => (
-                                            <span 
-                                              key={variation.id || idx}
-                                              className="text-xs text-muted-foreground font-mono"
-                                            >
-                                              ₱{variation.price.toFixed(2)}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      );
+                                      // Filter out invalid variations and ensure they have a price
+                                      const validVariations = variations.filter((v: any) => v && typeof v.price === 'number' && v.price > 0);
+                                      
+                                      if (validVariations.length > 0) {
+                                        return (
+                                          <div className="flex flex-col gap-1">
+                                            {validVariations.map((variation, idx) => (
+                                              <div 
+                                                key={variation.id || idx}
+                                                className="flex items-center gap-2 group"
+                                              >
+                                                <span className="text-xs text-muted-foreground font-mono">
+                                                  {variation.name ? `${variation.name}: ` : ''}₱{variation.price.toFixed(2)}
+                                                </span>
+                                                <button
+                                                  onClick={() => setEditingVariation({ product, variation })}
+                                                  disabled={!isOnline}
+                                                  className="opacity-0 group-hover:opacity-100 p-1 rounded bg-info/20 hover:bg-info/30 text-info disabled:opacity-30 transition-all"
+                                                  title="Edit variation"
+                                                >
+                                                  <Edit className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
+                                      }
                                     }
                                     return null;
                                   })()}
@@ -926,6 +1491,131 @@ export default function ProductManagement() {
                                     />
                                     <span>Always available (skip stock tracking)</span>
                                   </label>
+                                  {/* Suppliers Section */}
+                                  <div className="mt-3 pt-3 border-t border-border">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <label className="text-xs font-medium text-muted-foreground">
+                                        Suppliers (Optional)
+                                      </label>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleAddSupplier}
+                                        className="h-6 px-2 text-xs gap-1"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        Add
+                                      </Button>
+                                    </div>
+                                    {editSuppliers.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground py-1">
+                                        No suppliers added. Click "Add" to add one.
+                                      </p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {editSuppliers.map((supplier) => (
+                                          <div
+                                            key={supplier.id}
+                                            className="p-2 bg-secondary/30 rounded border border-border/50"
+                                          >
+                                            <div className="flex items-start justify-between gap-2 mb-2">
+                                              <div className="flex-1 flex gap-2">
+                                                {supplier.name && !availableSuppliers.includes(supplier.name) ? (
+                                                  <input
+                                                    type="text"
+                                                    value={supplier.name}
+                                                    onChange={(e) =>
+                                                      handleSupplierChange(supplier.id, "name", e.target.value)
+                                                    }
+                                                    className="flex-1 px-2 py-1 bg-input rounded text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                                    placeholder="Enter supplier name..."
+                                                  />
+                                                ) : (
+                                                  <select
+                                                    value={supplier.name || ""}
+                                                    onChange={(e) =>
+                                                      handleSupplierChange(supplier.id, "name", e.target.value || undefined)
+                                                    }
+                                                    className="flex-1 px-2 py-1 bg-input rounded text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                                    disabled={isLoadingSuppliers}
+                                                  >
+                                                    <option value="">Select supplier...</option>
+                                                    {availableSuppliers.map((s) => (
+                                                      <option key={s} value={s}>
+                                                        {s}
+                                                      </option>
+                                                    ))}
+                                                  </select>
+                                                )}
+                                              </div>
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => handleRemoveSupplier(supplier.id)}
+                                                className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </Button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div>
+                                                <label className="block text-xs text-muted-foreground mb-0.5">
+                                                  Price per Piece (₱)
+                                                </label>
+                                                <div className="relative">
+                                                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-xs">
+                                                    ₱
+                                                  </span>
+                                                  <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    value={supplier.price_per_piece || ""}
+                                                    onChange={(e) =>
+                                                      handleSupplierChange(
+                                                        supplier.id,
+                                                        "price_per_piece",
+                                                        e.target.value ? parseFloat(e.target.value) : undefined
+                                                      )
+                                                    }
+                                                    className="w-full pl-5 pr-1.5 py-1 bg-input rounded text-foreground font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                    placeholder="0.00"
+                                                  />
+                                                </div>
+                                              </div>
+                                              <div>
+                                                <label className="block text-xs text-muted-foreground mb-0.5">
+                                                  Price per Pack (₱)
+                                                </label>
+                                                <div className="relative">
+                                                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-xs">
+                                                    ₱
+                                                  </span>
+                                                  <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    value={supplier.price_per_pack || ""}
+                                                    onChange={(e) =>
+                                                      handleSupplierChange(
+                                                        supplier.id,
+                                                        "price_per_pack",
+                                                        e.target.value ? parseFloat(e.target.value) : undefined
+                                                      )
+                                                    }
+                                                    className="w-full pl-5 pr-1.5 py-1 bg-input rounded text-foreground font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                    placeholder="0.00"
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
@@ -1034,7 +1724,7 @@ export default function ProductManagement() {
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        onClick={() => handleDelete(product.id, product.name)}
+                                        onClick={() => handleDeleteClick(product.id, product.name)}
                                         className="h-8 w-8 text-destructive"
                                         disabled={!isOnline}
                                       >
@@ -1070,7 +1760,7 @@ export default function ProductManagement() {
                 onChange={(e) => setBulkCategory(e.target.value as ProductCategory)}
                 className="px-2 py-1 bg-input rounded text-foreground text-sm"
               >
-                {PRODUCT_CATEGORIES.map((cat) => (
+                {allCategories.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
                   </option>
@@ -1090,13 +1780,200 @@ export default function ProductManagement() {
                 Apply
               </Button>
             </div>
-            <div className="h-4 w-px bg-border" />
-            <Button variant="ghost" size="sm" onClick={clearSelection}>
-              <X className="w-4 h-4" />
-            </Button>
+            {showBulkPriceUpdate ? (
+              <div className="flex gap-2 items-center">
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-xs">₱</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={bulkPrice}
+                    onChange={(e) => setBulkPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="px-6 py-1 bg-input rounded text-foreground text-sm w-24 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    autoFocus
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleBulkPriceUpdate}
+                  disabled={isBulkUpdating || !isOnline}
+                  className="gap-1"
+                >
+                  {isBulkUpdating ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Tag className="w-3 h-3" />
+                  )}
+                  Apply
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowBulkPriceUpdate(false);
+                    setBulkPrice("");
+                  }}
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            ) : showBulkSupplierUpdate ? (
+              <div className="flex gap-2 items-center">
+                <div className="flex gap-2">
+                  <select
+                    value={bulkSupplier?.name || ""}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      if (name) {
+                        setBulkSupplier({
+                          id: `bulk-supplier-${Date.now()}`,
+                          name,
+                          price_per_piece: bulkSupplier?.price_per_piece,
+                          price_per_pack: bulkSupplier?.price_per_pack,
+                        });
+                      }
+                    }}
+                    className="px-2 py-1 bg-input rounded text-foreground text-sm"
+                  >
+                    <option value="">Select supplier...</option>
+                    {availableSuppliers.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="relative">
+                    <span className="absolute left-1 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-xs">₱</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkSupplier?.price_per_piece || ""}
+                      onChange={(e) => {
+                        setBulkSupplier({
+                          ...bulkSupplier!,
+                          price_per_piece: e.target.value ? parseFloat(e.target.value) : undefined,
+                        });
+                      }}
+                      placeholder="Per piece"
+                      className="px-5 py-1 bg-input rounded text-foreground text-xs w-20 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-1 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-xs">₱</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bulkSupplier?.price_per_pack || ""}
+                      onChange={(e) => {
+                        setBulkSupplier({
+                          ...bulkSupplier!,
+                          price_per_pack: e.target.value ? parseFloat(e.target.value) : undefined,
+                        });
+                      }}
+                      placeholder="Per pack"
+                      className="px-5 py-1 bg-input rounded text-foreground text-xs w-20 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleBulkSupplierUpdate}
+                  disabled={isBulkUpdating || !isOnline || !bulkSupplier?.name}
+                  className="gap-1"
+                >
+                  {isBulkUpdating ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Tag className="w-3 h-3" />
+                  )}
+                  Apply
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowBulkSupplierUpdate(false);
+                    setBulkSupplier(null);
+                  }}
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowBulkPriceUpdate(true);
+                    setShowBulkSupplierUpdate(false);
+                  }}
+                  disabled={selectedIds.size === 0 || !isOnline}
+                  className="gap-1"
+                >
+                  <Tag className="w-3 h-3" />
+                  Price
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowBulkSupplierUpdate(true);
+                    setShowBulkPriceUpdate(false);
+                    if (!bulkSupplier) {
+                      setBulkSupplier({
+                        id: `bulk-supplier-${Date.now()}`,
+                        name: "",
+                        price_per_piece: undefined,
+                        price_per_pack: undefined,
+                      });
+                    }
+                  }}
+                  disabled={selectedIds.size === 0 || !isOnline}
+                  className="gap-1"
+                >
+                  <Truck className="w-3 h-3" />
+                  Supplier
+                </Button>
+                <div className="h-4 w-px bg-border" />
+                <Button variant="ghost" size="sm" onClick={clearSelection}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Product</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{productToDelete?.name}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setDeleteDialogOpen(false);
+              setProductToDelete(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Stock Adjustment Dialog - handles both base products and variations */}
       {stockAdjustProduct && (
@@ -1152,14 +2029,27 @@ export default function ProductManagement() {
           product={variationProduct}
           onConfirm={async (price, variationName, stockQuantity) => {
             // Get existing variations or create empty array
-            const existingVariations = variationProduct.variations || [];
+            // Parse variations if it's a string (from database)
+            let existingVariations: any[] = [];
+            if (variationProduct.variations) {
+              if (Array.isArray(variationProduct.variations)) {
+                existingVariations = variationProduct.variations;
+              } else if (typeof variationProduct.variations === 'string') {
+                try {
+                  existingVariations = JSON.parse(variationProduct.variations);
+                } catch (e) {
+                  console.error("Error parsing variations:", e);
+                  existingVariations = [];
+                }
+              }
+            }
             
             // Create new variation
             const newVariation = {
-              id: Date.now().toString(),
+              id: `var-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               name: variationName,
               price: price,
-              stock_quantity: stockQuantity,
+              stock_quantity: stockQuantity || 0,
             };
             
             // Add new variation to the list
@@ -1171,6 +2061,8 @@ export default function ProductManagement() {
             });
             
             if (result.success) {
+              // Refresh products to get updated data
+              await refreshProducts();
               setVariationProduct(null);
               toast({
                 title: "Variation Added",
@@ -1188,6 +2080,72 @@ export default function ProductManagement() {
         />
       )}
 
+      {/* Edit Variation Dialog */}
+      {editingVariation && (
+        <EditVariationDialog
+          productName={editingVariation.product.name}
+          variation={editingVariation.variation}
+          onConfirm={async (variationId, newPrice, newName, suppliers) => {
+            try {
+              // Get existing variations
+              const existingVariations = (() => {
+                if (!editingVariation.product.variations) return [];
+                if (Array.isArray(editingVariation.product.variations)) return editingVariation.product.variations;
+                if (typeof editingVariation.product.variations === 'string') {
+                  try {
+                    return JSON.parse(editingVariation.product.variations);
+                  } catch {
+                    return [];
+                  }
+                }
+                return [];
+              })();
+
+              // Find and update the variation
+              const updatedVariations = existingVariations.map((v: any) => {
+                if (v.id === variationId) {
+                  return {
+                    ...v,
+                    price: newPrice,
+                    name: newName || `${editingVariation.product.name} - ₱${newPrice.toFixed(2)}`,
+                    suppliers: suppliers || undefined,
+                  };
+                }
+                return v;
+              });
+
+              // Update the product
+              const result = await updateProduct(editingVariation.product.id, {
+                variations: JSON.stringify(updatedVariations),
+              });
+
+              if (result.success) {
+                setEditingVariation(null);
+                await refreshProducts();
+                toast({
+                  title: "Variation Updated",
+                  description: `Variation updated successfully`,
+                });
+              } else {
+                toast({
+                  title: "Error",
+                  description: result.error || "Failed to update variation",
+                  variant: "destructive",
+                });
+              }
+            } catch (error) {
+              console.error("Error updating variation:", error);
+              toast({
+                title: "Error",
+                description: "An error occurred while updating variation",
+                variant: "destructive",
+              });
+            }
+          }}
+          onCancel={() => setEditingVariation(null)}
+        />
+      )}
+
       {/* History Dialog */}
       {historyProduct && (
         <HistoryDialog
@@ -1195,6 +2153,7 @@ export default function ProductManagement() {
           onClose={() => setHistoryProduct(null)}
         />
       )}
+
     </div>
   );
 }

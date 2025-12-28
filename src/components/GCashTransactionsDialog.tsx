@@ -77,7 +77,7 @@ export function GCashTransactionsDialog({ sales, onClose }: GCashTransactionsDia
     let totalGCashIn = 0;
     let totalGCashOut = 0;
     let totalServiceFees = 0;
-    let totalCNV = 0;
+    let totalGCashMoney = 0;
 
     gcashTransactions.forEach(({ transactionItem, serviceChargeItem, isGCashIn }) => {
       const transactionAmount = transactionItem.price * transactionItem.quantity;
@@ -86,20 +86,20 @@ export function GCashTransactionsDialog({ sales, onClose }: GCashTransactionsDia
       if (isGCashIn) {
         totalGCashIn += transactionAmount + serviceChargeAmount;
         totalServiceFees += serviceChargeAmount;
-        totalCNV += transactionAmount + serviceChargeAmount;
+        totalGCashMoney += transactionAmount + serviceChargeAmount;
       } else {
         totalGCashOut += transactionAmount;
         totalServiceFees += serviceChargeAmount;
-        totalCNV -= (transactionAmount - serviceChargeAmount);
+        totalGCashMoney -= (transactionAmount - serviceChargeAmount);
       }
     });
 
-    return { totalGCashIn, totalGCashOut, totalServiceFees, totalCNV };
+    return { totalGCashIn, totalGCashOut, totalServiceFees, totalGCashMoney };
   }, [gcashTransactions]);
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-4">
-      <div className="glass-panel rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col animate-scale-in">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-5xl mx-4 max-h-[90vh] flex flex-col animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">
@@ -136,9 +136,9 @@ export function GCashTransactionsDialog({ sales, onClose }: GCashTransactionsDia
             </p>
           </div>
           <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
-            <p className="text-xs text-muted-foreground">GCASH-CNV</p>
+            <p className="text-xs text-muted-foreground">GCASH-MONEY</p>
             <p className="text-lg font-bold text-primary font-mono">
-              ₱{totals.totalCNV.toFixed(2)}
+              ₱{totals.totalGCashMoney.toFixed(2)}
             </p>
           </div>
         </div>

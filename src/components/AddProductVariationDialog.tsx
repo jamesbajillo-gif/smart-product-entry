@@ -57,15 +57,17 @@ export function AddProductVariationDialog({
   };
 
   const existingVariations = parseVariations();
+  // Filter out invalid variations and get valid prices
+  const validVariations = existingVariations.filter((v: any) => v && typeof v.price === 'number' && v.price > 0);
   const existingPrices = [
-    product.price,
-    ...existingVariations.map(v => v.price)
+    ...(product.price > 0 ? [product.price] : []),
+    ...validVariations.map((v: any) => v.price)
   ].sort((a, b) => a - b);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
       <div
-        className="glass-panel rounded-xl p-6 w-full max-w-md mx-4 animate-scale-in"
+        className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in"
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between mb-6">
@@ -91,17 +93,21 @@ export function AddProductVariationDialog({
           <div className="mb-4 p-3 bg-secondary/30 rounded-lg">
             <p className="text-xs text-muted-foreground mb-2">Existing Price Variations:</p>
             <div className="flex flex-wrap gap-2">
-              <span className="px-2 py-1 bg-primary/20 text-primary rounded text-sm font-mono">
-                Base: ₱{product.price.toFixed(2)}
-              </span>
-              {existingVariations.map((v, idx) => (
-                <span
-                  key={idx}
-                  className="px-2 py-1 bg-primary/20 text-primary rounded text-sm font-mono"
-                >
-                  ₱{v.price.toFixed(2)}
+              {product.price > 0 && (
+                <span className="px-2 py-1 bg-primary/20 text-primary rounded text-sm font-mono">
+                  Base: ₱{product.price.toFixed(2)}
                 </span>
-              ))}
+              )}
+              {existingVariations
+                .filter((v) => v && typeof v.price === 'number' && v.price > 0)
+                .map((v, idx) => (
+                  <span
+                    key={v.id || idx}
+                    className="px-2 py-1 bg-primary/20 text-primary rounded text-sm font-mono"
+                  >
+                    {v.name ? `${v.name}: ` : ''}₱{v.price.toFixed(2)}
+                  </span>
+                ))}
             </div>
           </div>
         )}
@@ -152,7 +158,7 @@ export function AddProductVariationDialog({
               const numericPrice = parseFloat(price) || 0;
               const priceExists = numericPrice > 0 && (
                 existingPrices.includes(numericPrice) || 
-                existingVariations.some(v => v.price === numericPrice)
+                validVariations.some((v: any) => v.price === numericPrice)
               );
               
               if (priceExists) {
@@ -162,7 +168,7 @@ export function AddProductVariationDialog({
                   : `${product.name} - ₱${numericPrice.toFixed(2)}`;
                 
                 // Check if a variation with same name and price already exists
-                const duplicateExists = existingVariations.some(v => 
+                const duplicateExists = validVariations.some((v: any) => 
                   v.price === numericPrice && v.name === finalName
                 );
                 
@@ -223,7 +229,7 @@ export function AddProductVariationDialog({
                 
                 // Check if price exists
                 const priceExists = existingPrices.includes(numericPrice) || 
-                  existingVariations.some(v => v.price === numericPrice);
+                  validVariations.some((v: any) => v.price === numericPrice);
                 
                 if (priceExists) {
                   // If price exists, require a unique name
@@ -232,7 +238,7 @@ export function AddProductVariationDialog({
                   
                   // Check if variation with same name and price exists
                   const finalName = variationName.trim();
-                  const duplicateExists = existingVariations.some(v => 
+                  const duplicateExists = validVariations.some((v: any) => 
                     v.price === numericPrice && v.name === finalName
                   );
                   

@@ -49,7 +49,7 @@ interface FetchOptions {
   query?: string;
 }
 
-async function apiRequest<T>(
+export async function apiRequest<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   options: FetchOptions = {}
 ): Promise<ApiResponse<T>> {
@@ -121,6 +121,7 @@ export const productsApi = {
       low_stock_threshold?: number;
       skip_stock_tracking?: number | boolean;
       variations?: string; // JSON string
+      suppliers?: string; // JSON string
     }>>(
       "GET",
       { table: "products", limit: 1000 }
@@ -159,6 +160,8 @@ export const productsApi = {
     low_stock_threshold?: number;
     skip_stock_tracking?: boolean;
     variations?: string; // JSON string of variations
+    suppliers?: string; // JSON string of suppliers
+    services?: string; // JSON string of services
   }) => {
     // Convert boolean to 1/0 for MySQL if provided
     const updateData = {
@@ -586,6 +589,15 @@ export const stockApi = {
     });
     return result;
   },
+
+  // Delete stock adjustment
+  delete: async (id: number) => {
+    const result = await apiRequest("DELETE", {
+      table: "stock_adjustments",
+      id,
+    });
+    return result;
+  },
 };
 
 // Expenses API for always-available items
@@ -598,6 +610,8 @@ export interface ExpenseRecord {
   total_cost: number;
   supplier?: string;
   notes?: string;
+  category?: string; // Category/classification for expenses (e.g., "restock", "operational", etc.)
+  payment_source?: string; // Payment source (cash, store_funds, gcash, current_sales)
   created_at?: string;
 }
 
@@ -637,17 +651,99 @@ export const expensesApi = {
     return result;
   },
 
-  // Get unique suppliers
+  // Get unique suppliers from all sources (expenses, stock_adjustments, products, variations)
   getSuppliers: async () => {
-    const result = await apiRequest<ExpenseRecord[]>("GET", {
-      table: "expenses",
-      limit: 500,
-    });
-    if (result.success && result.data) {
-      const suppliers = [...new Set(result.data.map(e => e.supplier).filter(Boolean))];
-      return { success: true, data: suppliers as string[] };
+    const allSuppliers = new Set<string>();
+    
+    try {
+      // 1. Get suppliers from expenses table
+      const expensesResult = await apiRequest<ExpenseRecord[]>("GET", {
+        table: "expenses",
+        limit: 500,
+      });
+      if (expensesResult.success && expensesResult.data) {
+        expensesResult.data.forEach(e => {
+          if (e.supplier && e.supplier.trim()) {
+            allSuppliers.add(e.supplier.trim());
+          }
+        });
+      }
+      
+      // 2. Get suppliers from stock_adjustments table
+      const stockResult = await apiRequest<Array<{ supplier?: string }>>("GET", {
+        table: "stock_adjustments",
+        limit: 500,
+      });
+      if (stockResult.success && stockResult.data) {
+        stockResult.data.forEach(s => {
+          if (s.supplier && s.supplier.trim()) {
+            allSuppliers.add(s.supplier.trim());
+          }
+        });
+      }
+      
+      // 3. Get suppliers from products table (suppliers JSON field)
+      const productsResult = await productsApi.getAll();
+      if (productsResult.success && productsResult.data) {
+        productsResult.data.forEach((p: any) => {
+          // Parse suppliers from product
+          if (p.suppliers) {
+            try {
+              const suppliers = typeof p.suppliers === 'string' 
+                ? JSON.parse(p.suppliers) 
+                : p.suppliers;
+              if (Array.isArray(suppliers)) {
+                suppliers.forEach((s: any) => {
+                  if (s && s.name && typeof s.name === 'string' && s.name.trim()) {
+                    allSuppliers.add(s.name.trim());
+                  }
+                });
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+          
+          // Parse suppliers from variations
+          if (p.variations) {
+            try {
+              const variations = typeof p.variations === 'string' 
+                ? JSON.parse(p.variations) 
+                : p.variations;
+              if (Array.isArray(variations)) {
+                variations.forEach((v: any) => {
+                  if (v && v.suppliers && Array.isArray(v.suppliers)) {
+                    v.suppliers.forEach((s: any) => {
+                      if (s && s.name && typeof s.name === 'string' && s.name.trim()) {
+                        allSuppliers.add(s.name.trim());
+                      }
+                    });
+                  }
+                });
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        });
+      }
+      
+      // Convert Set to sorted array
+      const suppliersArray = Array.from(allSuppliers).sort();
+      return { success: true, data: suppliersArray };
+    } catch (error) {
+      console.error("Error fetching suppliers:", error);
+      return { success: false, data: [], error: String(error) };
     }
-    return { success: false, data: [] };
+  },
+
+  // Delete expense
+  delete: async (id: number) => {
+    const result = await apiRequest("DELETE", {
+      table: "expenses",
+      id,
+    });
+    return result;
   },
 };
 
@@ -879,6 +975,8 @@ export const REQUIRED_SCHEMA = {
       { name: "total_cost", type: "DECIMAL(10,2) NOT NULL" },
       { name: "supplier", type: "VARCHAR(255)" },
       { name: "notes", type: "TEXT" },
+      { name: "category", type: "VARCHAR(100)" },
+      { name: "payment_source", type: "VARCHAR(50) DEFAULT 'cash'" },
       { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
     ],
     createSQL: `CREATE TABLE IF NOT EXISTS expenses (
@@ -890,9 +988,12 @@ export const REQUIRED_SCHEMA = {
       total_cost DECIMAL(10,2) NOT NULL,
       supplier VARCHAR(255),
       notes TEXT,
+      category VARCHAR(100),
+      payment_source VARCHAR(50) DEFAULT 'cash',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_product_id (product_id),
       INDEX idx_supplier (supplier),
+      INDEX idx_category (category),
       INDEX idx_created_at (created_at)
     )`,
   },

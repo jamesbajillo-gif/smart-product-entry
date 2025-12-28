@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { salesApi, SaleRecord } from "@/services/mysqlApi";
+import { salesApi, SaleRecord, expensesApi, ExpenseRecord } from "@/services/mysqlApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,7 +28,10 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Trash2
+  Trash2,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  DollarSign
 } from "lucide-react";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 
@@ -51,13 +55,16 @@ const formatMySQLDate = (date: Date): string => {
 export default function SalesHistory() {
   const { canDelete } = useUserPermissions();
   const [sales, setSales] = useState<SaleRecord[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [saleToDelete, setSaleToDelete] = useState<SaleRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [activeTab, setActiveTab] = useState<"sales" | "gcash" | "expenses">("sales");
   const { toast } = useToast();
   
   // Filter states
@@ -107,10 +114,48 @@ export default function SalesHistory() {
     setIsLoading(false);
   };
 
+  const loadExpenses = async () => {
+    setIsLoadingExpenses(true);
+    const result = await expensesApi.getAll(500);
+    
+    if (result.success && result.data) {
+      // Filter by date range if needed
+      const dateRange = getDateRange(dateFilter);
+      let filteredExpenses = result.data;
+      
+      if (dateRange.from && dateRange.to) {
+        filteredExpenses = result.data.filter((expense) => {
+          if (!expense.created_at) return false;
+          try {
+            const expenseDate = new Date(expense.created_at);
+            const fromDate = new Date(dateRange.from!);
+            const toDate = new Date(dateRange.to!);
+            // Ensure dates are valid before comparison
+            if (isNaN(expenseDate.getTime()) || isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+              return false;
+            }
+            return expenseDate >= fromDate && expenseDate <= toDate;
+          } catch {
+            return false;
+          }
+        });
+      }
+      
+      setExpenses(filteredExpenses);
+    }
+    setIsLoadingExpenses(false);
+  };
+
   useEffect(() => {
     loadSales();
     setCurrentPage(1); // Reset to first page when date filter changes
   }, [dateFilter]);
+
+  useEffect(() => {
+    if (activeTab === "expenses") {
+      loadExpenses();
+    }
+  }, [activeTab, dateFilter]);
 
   const parseItems = (itemsJson: string): ParsedSaleItem[] => {
     try {
@@ -143,6 +188,44 @@ export default function SalesHistory() {
     });
   }, [sales, searchQuery]);
 
+  // Filter GCash transactions (sales with GCASH-IN or GCASH-OUT)
+  const gcashTransactions = useMemo(() => {
+    return sales.filter((sale) => {
+      const items = parseItems(sale.items);
+      return items.some((item) => 
+        item.name === "GCASH-IN" || item.name === "GCASH-OUT"
+      );
+    });
+  }, [sales]);
+
+  // Filter GCash transactions by search
+  const filteredGcashTransactions = useMemo(() => {
+    if (!searchQuery.trim()) return gcashTransactions;
+    
+    const query = searchQuery.toLowerCase();
+    return gcashTransactions.filter((sale) => {
+      const items = parseItems(sale.items);
+      return items.some((item) => 
+        (item.name === "GCASH-IN" || item.name === "GCASH-OUT") &&
+        (item.name.toLowerCase().includes(query) || 
+         sale.payment_method?.toLowerCase().includes(query))
+      );
+    });
+  }, [gcashTransactions, searchQuery]);
+
+  // Filter expenses by search
+  const filteredExpenses = useMemo(() => {
+    if (!searchQuery.trim()) return expenses;
+    
+    const query = searchQuery.toLowerCase();
+    return expenses.filter((expense) => 
+      expense.product_name?.toLowerCase().includes(query) ||
+      expense.category?.toLowerCase().includes(query) ||
+      expense.supplier?.toLowerCase().includes(query) ||
+      expense.notes?.toLowerCase().includes(query)
+    );
+  }, [expenses, searchQuery]);
+
   // Pagination
   const totalPages = Math.ceil(filteredSales.length / ITEMS_PER_PAGE);
   const paginatedSales = useMemo(() => {
@@ -159,6 +242,23 @@ export default function SalesHistory() {
   const totalSales = filteredSales.reduce((sum, sale) => sum + Number(sale.total), 0);
   const cashSales = filteredSales.filter((s) => s.payment_method === "cash");
   const gcashSales = filteredSales.filter((s) => s.payment_method === "gcash");
+
+  // GCash transactions summary
+  const gcashTotal = filteredGcashTransactions.reduce((sum, sale) => {
+    const items = parseItems(sale.items);
+    const gcashInItem = items.find(item => item.name === "GCASH-IN");
+    const gcashOutItem = items.find(item => item.name === "GCASH-OUT");
+    const serviceChargeItem = items.find(item => item.name === "Service Charge");
+    const transactionItem = gcashInItem || gcashOutItem;
+    
+    if (transactionItem) {
+      return sum + (transactionItem.price * transactionItem.quantity) + (serviceChargeItem ? serviceChargeItem.price * serviceChargeItem.quantity : 0);
+    }
+    return sum;
+  }, 0);
+
+  // Expenses summary
+  const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + Number(expense.total_cost || 0), 0);
 
   const dateFilterOptions: { value: DateFilter; label: string }[] = [
     { value: "today", label: "Today" },
@@ -361,33 +461,83 @@ export default function SalesHistory() {
 
           {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="glass-panel rounded-lg p-4">
-              <p className="text-sm text-muted-foreground">Total Sales</p>
-              <p className="text-xl md:text-2xl font-bold font-mono text-primary">₱{totalSales.toFixed(2)}</p>
-            </div>
-            <div className="glass-panel rounded-lg p-4">
-              <p className="text-sm text-muted-foreground">Transactions</p>
-              <p className="text-xl md:text-2xl font-bold text-foreground">{filteredSales.length}</p>
-            </div>
-            <div className="glass-panel rounded-lg p-4 flex items-center gap-3">
-              <Banknote className="w-5 h-5 text-success" />
-              <div>
-                <p className="text-sm text-muted-foreground">Cash</p>
-                <p className="text-lg md:text-xl font-bold text-foreground">{cashSales.length}</p>
-              </div>
-            </div>
-            <div className="glass-panel rounded-lg p-4 flex items-center gap-3">
-              <Smartphone className="w-5 h-5 text-info" />
-              <div>
-                <p className="text-sm text-muted-foreground">GCash</p>
-                <p className="text-lg md:text-xl font-bold text-foreground">{gcashSales.length}</p>
-              </div>
-            </div>
+            {activeTab === "sales" && (
+              <>
+                <div className="glass-panel rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">Total Sales</p>
+                  <p className="text-xl md:text-2xl font-bold font-mono text-primary">₱{totalSales.toFixed(2)}</p>
+                </div>
+                <div className="glass-panel rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">Transactions</p>
+                  <p className="text-xl md:text-2xl font-bold text-foreground">{filteredSales.length}</p>
+                </div>
+                <div className="glass-panel rounded-lg p-4 flex items-center gap-3">
+                  <Banknote className="w-5 h-5 text-success" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Cash</p>
+                    <p className="text-lg md:text-xl font-bold text-foreground">{cashSales.length}</p>
+                  </div>
+                </div>
+                <div className="glass-panel rounded-lg p-4 flex items-center gap-3">
+                  <Smartphone className="w-5 h-5 text-info" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">GCash</p>
+                    <p className="text-lg md:text-xl font-bold text-foreground">{gcashSales.length}</p>
+                  </div>
+                </div>
+              </>
+            )}
+            {activeTab === "gcash" && (
+              <>
+                <div className="glass-panel rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">Total Transactions</p>
+                  <p className="text-xl md:text-2xl font-bold font-mono text-primary">₱{gcashTotal.toFixed(2)}</p>
+                </div>
+                <div className="glass-panel rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">Transactions</p>
+                  <p className="text-xl md:text-2xl font-bold text-foreground">{filteredGcashTransactions.length}</p>
+                </div>
+              </>
+            )}
+            {activeTab === "expenses" && (
+              <>
+                <div className="glass-panel rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">Total Expenses</p>
+                  <p className="text-xl md:text-2xl font-bold font-mono text-destructive">₱{totalExpenses.toFixed(2)}</p>
+                </div>
+                <div className="glass-panel rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground">Records</p>
+                  <p className="text-xl md:text-2xl font-bold text-foreground">{filteredExpenses.length}</p>
+                </div>
+              </>
+            )}
           </div>
         </header>
 
-        {/* Content */}
-        <div className="flex gap-6">
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(value) => {
+          setActiveTab(value as "sales" | "gcash" | "expenses");
+          setCurrentPage(1);
+        }} className="mb-6">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="sales" className="gap-2">
+              <Receipt className="w-4 h-4" />
+              Sales
+            </TabsTrigger>
+            <TabsTrigger value="gcash" className="gap-2">
+              <Smartphone className="w-4 h-4" />
+              GCash
+            </TabsTrigger>
+            <TabsTrigger value="expenses" className="gap-2">
+              <DollarSign className="w-4 h-4" />
+              Expenses
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Sales Tab */}
+          <TabsContent value="sales" className="mt-6">
+            {/* Content */}
+            <div className="flex gap-6">
           {/* Sales List */}
           <div className="flex-1">
             {isLoading ? (
@@ -623,6 +773,272 @@ export default function SalesHistory() {
             </div>
           )}
         </div>
+          </TabsContent>
+
+          {/* GCash Transactions Tab */}
+          <TabsContent value="gcash" className="mt-6">
+            <div className="flex gap-6">
+              <div className="flex-1">
+                {isLoading ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+                    <p className="text-muted-foreground">Loading GCash transactions...</p>
+                  </div>
+                ) : filteredGcashTransactions.length === 0 ? (
+                  <div className="text-center py-12 glass-panel rounded-lg">
+                    <Smartphone className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-30" />
+                    <p className="text-muted-foreground">
+                      {searchQuery 
+                        ? `No GCash transactions found for "${searchQuery}"` 
+                        : dateFilter !== "all" 
+                          ? `No GCash transactions for ${dateFilterOptions.find(o => o.value === dateFilter)?.label.toLowerCase()}`
+                          : "No GCash transactions recorded yet"
+                      }
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      {paginatedGcashTransactions.map((sale) => {
+                        const items = parseItems(sale.items);
+                        const gcashInItem = items.find(item => item.name === "GCASH-IN");
+                        const gcashOutItem = items.find(item => item.name === "GCASH-OUT");
+                        const serviceChargeItem = items.find(item => item.name === "Service Charge");
+                        const transactionItem = gcashInItem || gcashOutItem;
+                        const isGCashIn = !!gcashInItem;
+                        
+                        if (!transactionItem) return null;
+
+                        const transactionAmount = transactionItem.price * transactionItem.quantity;
+                        const serviceChargeAmount = serviceChargeItem ? serviceChargeItem.price * serviceChargeItem.quantity : 0;
+                        const totalAmount = transactionAmount + serviceChargeAmount;
+
+                        return (
+                          <div
+                            key={sale.id}
+                            className={`w-full p-4 rounded-lg transition-all ${
+                              selectedSale?.id === sale.id
+                                ? "bg-primary/10 border border-primary/30"
+                                : "glass-panel hover:bg-secondary/50"
+                            }`}
+                          >
+                            <button
+                              onClick={() => setSelectedSale(sale)}
+                              className="w-full text-left"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-lg ${isGCashIn ? 'bg-success/20' : 'bg-info/20'}`}>
+                                    {isGCashIn ? (
+                                      <ArrowDownCircle className="w-4 h-4 text-success" />
+                                    ) : (
+                                      <ArrowUpCircle className="w-4 h-4 text-info" />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-foreground">
+                                      {isGCashIn ? "GCASH-IN" : "GCASH-OUT"}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                      <Calendar className="w-3 h-3" />
+                                      {formatDate(sale.created_at)}
+                                    </p>
+                                    {serviceChargeAmount > 0 && (
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Service Fee: ₱{serviceChargeAmount.toFixed(2)}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="font-mono font-bold text-primary">
+                                  ₱{totalAmount.toFixed(2)}
+                                </p>
+                              </div>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Pagination */}
+                    {gcashTotalPages > 1 && (
+                      <div className="flex items-center justify-center gap-2 mt-6">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground px-4">
+                          Page {currentPage} of {gcashTotalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage((p) => Math.min(gcashTotalPages, p + 1))}
+                          disabled={currentPage === gcashTotalPages}
+                        >
+                          Next
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Sale Detail */}
+              {selectedSale && (
+                <div className="w-80 glass-panel rounded-lg p-4 h-fit sticky top-6 hidden md:block">
+                  <h3 className="font-semibold text-foreground mb-4">Transaction Details</h3>
+                  <div className="space-y-3 mb-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Date</span>
+                      <span className="text-foreground">{formatDate(selectedSale.created_at)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Payment</span>
+                      <span className="text-foreground capitalize flex items-center gap-1">
+                        <Smartphone className="w-3 h-3 text-info" />
+                        {selectedSale.payment_method}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="border-t border-border pt-4 mb-4">
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Items</p>
+                    <div className="space-y-2">
+                      {parseItems(selectedSale.items).map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <span className="text-foreground">
+                            {item.name} <span className="text-muted-foreground">×{item.quantity}</span>
+                          </span>
+                          <span className="font-mono text-foreground">
+                            ₱{(item.price * item.quantity).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="border-t border-border pt-4 space-y-2">
+                    <div className="flex justify-between font-bold">
+                      <span className="text-foreground">Total</span>
+                      <span className="font-mono text-primary">
+                        ₱{Number(selectedSale.total).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          {/* Expenses Tab */}
+          <TabsContent value="expenses" className="mt-6">
+            <div className="flex gap-6">
+              <div className="flex-1">
+                {isLoadingExpenses ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+                    <p className="text-muted-foreground">Loading expenses...</p>
+                  </div>
+                ) : filteredExpenses.length === 0 ? (
+                  <div className="text-center py-12 glass-panel rounded-lg">
+                    <DollarSign className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-30" />
+                    <p className="text-muted-foreground">
+                      {searchQuery 
+                        ? `No expenses found for "${searchQuery}"` 
+                        : dateFilter !== "all" 
+                          ? `No expenses for ${dateFilterOptions.find(o => o.value === dateFilter)?.label.toLowerCase()}`
+                          : "No expenses recorded yet"
+                      }
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      {paginatedExpenses.map((expense) => (
+                        <div
+                          key={expense.id}
+                          className="w-full p-4 rounded-lg glass-panel hover:bg-secondary/50"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-destructive/20 rounded-lg">
+                                <DollarSign className="w-4 h-4 text-destructive" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-foreground">
+                                  {expense.product_name || "Expense"}
+                                </p>
+                                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <Calendar className="w-3 h-3" />
+                                  {formatDate(expense.created_at)}
+                                </p>
+                                {expense.category && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Category: {expense.category}
+                                  </p>
+                                )}
+                                {expense.supplier && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Supplier: {expense.supplier}
+                                  </p>
+                                )}
+                                {expense.quantity && expense.unit_cost && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Qty: {expense.quantity} × ₱{Number(expense.unit_cost).toFixed(2)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <p className="font-mono font-bold text-destructive">
+                              ₱{Number(expense.total_cost || 0).toFixed(2)}
+                            </p>
+                          </div>
+                          {expense.notes && (
+                            <p className="text-xs text-muted-foreground mt-2 ml-11 italic">
+                              {expense.notes}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Pagination */}
+                    {expensesTotalPages > 1 && (
+                      <div className="flex items-center justify-center gap-2 mt-6">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground px-4">
+                          Page {currentPage} of {expensesTotalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage((p) => Math.min(expensesTotalPages, p + 1))}
+                          disabled={currentPage === expensesTotalPages}
+                        >
+                          Next
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Delete Confirmation Dialog */}

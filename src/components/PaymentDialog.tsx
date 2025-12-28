@@ -100,7 +100,7 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-full max-w-md mx-4 animate-scale-in" onKeyDown={handleKeyDown}>
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in" onKeyDown={handleKeyDown}>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold text-foreground">Payment</h2>
           <button

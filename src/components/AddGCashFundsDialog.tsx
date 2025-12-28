@@ -53,7 +53,7 @@ export function AddGCashFundsDialog({ currentBalance, onConfirm, onCancel }: Add
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-4">
-      <div className="glass-panel rounded-xl p-6 max-w-md w-full animate-scale-in">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">

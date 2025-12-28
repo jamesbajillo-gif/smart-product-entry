@@ -319,6 +319,30 @@ export function useMySQLSync() {
             }
           }
           
+          // Parse suppliers from JSON if present
+          let suppliers;
+          if (p.suppliers) {
+            try {
+              suppliers = typeof p.suppliers === 'string' 
+                ? JSON.parse(p.suppliers) 
+                : p.suppliers;
+            } catch {
+              suppliers = undefined;
+            }
+          }
+          
+          // Parse services from JSON if present
+          let services;
+          if (p.services) {
+            try {
+              services = typeof p.services === 'string' 
+                ? JSON.parse(p.services) 
+                : p.services;
+            } catch {
+              services = undefined;
+            }
+          }
+          
           return {
             id: String(p.id),
             name: p.name,
@@ -329,6 +353,8 @@ export function useMySQLSync() {
             low_stock_threshold: p.low_stock_threshold ?? 5,
             skip_stock_tracking: Boolean(p.skip_stock_tracking),
             variations,
+            suppliers,
+            services,
           };
         });
         setProducts(dbProducts);
@@ -341,16 +367,20 @@ export function useMySQLSync() {
   // Record sale
   const recordSale = useCallback(
     async (orderItems: OrderItem[], paymentDetails: PaymentDetails) => {
-      const subtotal = orderItems.reduce(
-        (sum, item) => sum + item.product.price * item.quantity,
-        0
-      );
+      const subtotal = orderItems.reduce((sum, item) => {
+        const productTotal = item.product.price * item.quantity;
+        const servicesTotal = (item.selectedServices || []).reduce(
+          (serviceSum, service) => serviceSum + service.price * item.quantity,
+          0
+        );
+        return sum + productTotal + servicesTotal;
+      }, 0);
       
       // Include bottle deposit in total if present
       const bottleDeposit = paymentDetails.bottleDeposit || 0;
       const total = subtotal + bottleDeposit;
 
-      // Build items array with bottle deposit info for beverages
+      // Build items array with bottle deposit info for beverages and services
       const itemsData = orderItems.map((item) => {
         const itemData: any = {
           productId: item.product.id,
@@ -358,6 +388,20 @@ export function useMySQLSync() {
           price: item.product.price,
           quantity: item.quantity,
         };
+        
+        // Add services if present
+        if (item.selectedServices && item.selectedServices.length > 0) {
+          itemData.services = item.selectedServices.map((service) => ({
+            id: service.id,
+            name: service.name,
+            price: service.price,
+          }));
+          // Calculate total service fee for this item
+          itemData.serviceFeeTotal = item.selectedServices.reduce(
+            (sum, service) => sum + service.price * item.quantity,
+            0
+          );
+        }
         
         // Add bottle deposit info for beverages
         if (item.product.category?.toLowerCase().trim() === 'beverages' && bottleDeposit > 0) {

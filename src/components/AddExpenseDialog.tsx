@@ -106,6 +106,8 @@ export function AddExpenseDialog({ product, availableFunds, onClose, onSuccess }
       total_cost: finalTotalCost,
       supplier: selectedSupplier || undefined,
       notes: notes.trim() || undefined,
+      category: "operational", // Default category for expenses added via Add Expense dialog
+      payment_source: paymentSource,
     });
 
     if (result.success) {
@@ -130,7 +132,7 @@ export function AddExpenseDialog({ product, availableFunds, onClose, onSuccess }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-full max-w-md mx-4 animate-scale-in">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-2xl mx-4 animate-scale-in">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">

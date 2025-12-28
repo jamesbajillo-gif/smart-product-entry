@@ -118,7 +118,7 @@ export function HistoryDialog({ product, onClose }: HistoryDialogProps) {
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] flex flex-col animate-scale-in">
+      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-4xl mx-4 max-h-[90vh] flex flex-col animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">
@@ -152,11 +152,18 @@ export function HistoryDialog({ product, onClose }: HistoryDialogProps) {
           {isGcash && (
             <TabsContent value="transactions" className="flex-1 flex flex-col min-h-0 mt-0">
               {/* Current Balance */}
-              <div className="p-3 bg-primary/10 rounded-lg mb-4 border border-primary/20">
+              <div className={`p-3 rounded-lg mb-4 border ${
+                gcashFunds < 0 
+                  ? 'bg-destructive/10 border-destructive/20' 
+                  : 'bg-primary/10 border-primary/20'
+              }`}>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Current GCASH Balance</span>
-                  <span className="text-xl font-bold text-primary font-mono">
+                  <span className={`text-xl font-bold font-mono ${
+                    gcashFunds < 0 ? 'text-destructive' : 'text-primary'
+                  }`}>
                     ₱{gcashFunds.toFixed(2)}
+                    {gcashFunds < 0 && <span className="ml-1 text-sm">(Negative)</span>}
                   </span>
                 </div>
               </div>

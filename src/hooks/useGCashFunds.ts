@@ -38,11 +38,12 @@ export function useGCashFunds() {
     return { success: true, balance: newBalance };
   }, [funds, setFunds, setHistory]);
 
-  // Process GCASH-IN: Customer pays cash, we send GCash (deducts from our GCASH funds)
+  // Process GCASH-IN: Customer pays cash, we send GCash credit (deducts from GCASH-FUNDS)
+  // Allow negative balances - transaction will proceed even if insufficient funds
   const processGCashIn = useCallback((amount: number, gcashNumber?: string, notes?: string) => {
     if (amount <= 0) return { success: false, error: "Amount must be greater than 0" };
-    if (funds < amount) return { success: false, error: "Insufficient GCASH funds" };
     
+    // Allow negative balance - no check for insufficient funds
     const newBalance = funds - amount;
     const transaction: GCashFundTransaction = {
       id: `gcash-in-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -60,7 +61,7 @@ export function useGCashFunds() {
     return { success: true, balance: newBalance };
   }, [funds, setFunds, setHistory]);
 
-  // Process GCASH-OUT: Customer sends GCash, we give cash (adds to our GCASH funds)
+  // Process GCASH-OUT: We give customer cash, customer sends GCash credit (adds to GCASH-FUNDS)
   const processGCashOut = useCallback((amount: number, notes?: string) => {
     if (amount <= 0) return { success: false, error: "Amount must be greater than 0" };
     
@@ -83,6 +84,8 @@ export function useGCashFunds() {
   return {
     funds,
     history,
+    setFunds,
+    setHistory,
     addFunds,
     processGCashIn,
     processGCashOut,

@@ -14,11 +14,25 @@ export const PRODUCT_CATEGORIES = [
 
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 
+export interface ProductSupplier {
+  id: string;
+  name: string;
+  price_per_piece?: number;
+  price_per_pack?: number;
+}
+
 export interface ProductVariation {
   id: string;
   name: string;
   price: number;
   stock_quantity?: number;
+  suppliers?: ProductSupplier[];
+}
+
+export interface ProductService {
+  id: string;
+  name: string;
+  price: number;
 }
 
 export interface Product {
@@ -31,11 +45,14 @@ export interface Product {
   low_stock_threshold?: number;
   skip_stock_tracking?: boolean;
   variations?: ProductVariation[]; // Price variations stored as JSON
+  suppliers?: ProductSupplier[];
+  services?: ProductService[]; // Optional services/add-ons (e.g., "Hot Water" for cup noodles, "Timpla" for coffee)
 }
 
 export interface OrderItem {
   product: Product;
   quantity: number;
+  selectedServices?: ProductService[]; // Services selected for this order item
 }
 
 export interface StockAdjustment {
