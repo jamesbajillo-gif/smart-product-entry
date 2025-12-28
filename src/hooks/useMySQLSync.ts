@@ -262,21 +262,49 @@ export function useMySQLSync() {
 
   // Update product
   const updateProduct = useCallback(
-    async (id: string, data: Partial<Product>) => {
+    async (id: string, data: Partial<Product> | { variations: string }) => {
+      // Convert variations to JSON string if it's an array for the API call
+      const apiData: Record<string, unknown> = { ...data };
+      if (apiData.variations && Array.isArray(apiData.variations)) {
+        apiData.variations = JSON.stringify(apiData.variations);
+      }
+      
+      // For local state update
+      const updateLocalState = (prev: Product[]) => 
+        prev.map((p) => {
+          if (p.id !== id) return p;
+          const updated = { ...p };
+          // Handle each property explicitly
+          if ('name' in data && data.name !== undefined) updated.name = data.name;
+          if ('price' in data && data.price !== undefined) updated.price = data.price;
+          if ('category' in data) updated.category = data.category;
+          if ('image_url' in data) updated.image_url = data.image_url;
+          if ('stock_quantity' in data) updated.stock_quantity = data.stock_quantity;
+          if ('low_stock_threshold' in data) updated.low_stock_threshold = data.low_stock_threshold;
+          if ('skip_stock_tracking' in data) updated.skip_stock_tracking = data.skip_stock_tracking;
+          if ('suppliers' in data) updated.suppliers = data.suppliers;
+          if ('services' in data) updated.services = data.services;
+          // Handle variations - parse if string
+          if ('variations' in data) {
+            if (typeof data.variations === 'string') {
+              try { updated.variations = JSON.parse(data.variations); } catch { /* ignore */ }
+            } else {
+              updated.variations = data.variations;
+            }
+          }
+          return updated;
+        });
+      
       if (isOnline) {
-        const result = await productsApi.update(id, data);
+        const result = await productsApi.update(id, apiData as Parameters<typeof productsApi.update>[1]);
         if (result.success) {
-          setProducts((prev) =>
-            prev.map((p) => (p.id === id ? { ...p, ...data } : p))
-          );
+          setProducts(updateLocalState);
           return { success: true };
         }
         return { success: false, error: result.error };
       }
       // Local-only update when offline
-      setProducts((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, ...data } : p))
-      );
+      setProducts(updateLocalState);
       return { success: true };
     },
     [isOnline]

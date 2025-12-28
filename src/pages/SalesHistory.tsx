@@ -226,12 +226,26 @@ export default function SalesHistory() {
     );
   }, [expenses, searchQuery]);
 
-  // Pagination
+  // Pagination for Sales
   const totalPages = Math.ceil(filteredSales.length / ITEMS_PER_PAGE);
   const paginatedSales = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredSales.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredSales, currentPage]);
+
+  // Pagination for GCash
+  const gcashTotalPages = Math.ceil(filteredGcashTransactions.length / ITEMS_PER_PAGE);
+  const paginatedGcashTransactions = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredGcashTransactions.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredGcashTransactions, currentPage]);
+
+  // Pagination for Expenses
+  const expensesTotalPages = Math.ceil(filteredExpenses.length / ITEMS_PER_PAGE);
+  const paginatedExpenses = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredExpenses.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredExpenses, currentPage]);
 
   // Reset page when search changes
   useEffect(() => {

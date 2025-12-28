@@ -44,6 +44,21 @@ export function OrderSidebar({
       setIsFlipped(false);
     }
   }, [showReceipt]);
+
+  // Handle Enter/Escape key to close receipt
+  useEffect(() => {
+    if (!showReceipt || !onCloseReceipt) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === "Escape") {
+        e.preventDefault();
+        onCloseReceipt();
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showReceipt, onCloseReceipt]);
   
   // Calculate receipt totals
   const receiptSubtotal = receiptItems?.reduce((sum, item) => {
@@ -353,19 +368,19 @@ export function OrderSidebar({
 
                   <div className="space-y-2 text-xs">
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      {receiptPayment.paymentMethod === 'cash' ? (
+                      {receiptPayment.method === 'cash' ? (
                         <Banknote className="w-4 h-4" />
                       ) : (
                         <Smartphone className="w-4 h-4" />
                       )}
                       <span className="font-medium">
-                        {receiptPayment.paymentMethod === 'cash' ? 'Cash' : 'GCash'}
+                        {receiptPayment.method === 'cash' ? 'Cash' : 'GCash'}
                       </span>
                     </div>
-                    {receiptPayment.amountPaid && (
+                    {receiptPayment.amountTendered && (
                       <div className="flex justify-between text-foreground">
                         <span>Amount Paid</span>
-                        <span>₱{receiptPayment.amountPaid.toFixed(2)}</span>
+                        <span>₱{receiptPayment.amountTendered.toFixed(2)}</span>
                       </div>
                     )}
                     {receiptPayment.change && receiptPayment.change > 0 && (
@@ -394,7 +409,7 @@ export function OrderSidebar({
                   Close
                 </Button>
                 <p className="text-xs text-center text-muted-foreground mt-2">
-                  Press ESC to return to cart
+                  Press ENTER or ESC to close
                 </p>
               </div>
             </div>

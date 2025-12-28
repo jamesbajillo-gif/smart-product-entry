@@ -10,12 +10,11 @@ interface StoreFundsDialogProps {
   onCancel: () => void;
 }
 
-export function StoreFundsDialog({ currentBalance, availableFunds, onConfirm, onCancel }: StoreFundsDialogProps) {
+export function StoreFundsDialog({ currentBalance, onConfirm, onCancel }: StoreFundsDialogProps) {
   const [transactionType, setTransactionType] = useState<"add" | "withdraw">("add");
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [category, setCategory] = useState("");
-  const [paymentSource, setPaymentSource] = useState<PaymentSource>("cash");
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
   const amountInputRef = useRef<HTMLInputElement>(null);

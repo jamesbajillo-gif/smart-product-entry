@@ -38,7 +38,7 @@ export function useAvailableFunds() {
         }
 
         // Load all expenses
-        const expensesResult = await expensesApi.getAll({ limit: 10000 });
+        const expensesResult = await expensesApi.getAll(10000);
         if (expensesResult.success && expensesResult.data) {
           setExpenses(expensesResult.data);
         }
@@ -136,7 +136,7 @@ export function useAvailableFunds() {
       if (salesResult.success && salesResult.data) {
         setSales(salesResult.data);
       }
-      const expensesResult = await expensesApi.getAll({ limit: 10000 });
+      const expensesResult = await expensesApi.getAll(10000);
       if (expensesResult.success && expensesResult.data) {
         setExpenses(expensesResult.data);
       }
