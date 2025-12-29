@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { X, Banknote, Smartphone, Check, Delete, Calculator } from "lucide-react";
+import { X, Banknote, Smartphone, Check, Delete, Calculator, Tag, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FeeRecord } from "@/services/mysqlApi";
+import { OrderItem } from "@/types/product";
+import { calculateFeeAmount, getProductsForFee } from "@/utils/fees";
 
 export type PaymentMethod = "cash" | "gcash";
 
@@ -11,10 +14,16 @@ export interface PaymentDetails {
   change?: number;
   bottleDeposit?: number;
   bottleDepositBreakdown?: Array<{ productName: string; quantity: number; deposit: number; total: number }>;
+  fees?: FeeRecord[];
+  enabledFeeIds?: number[]; // IDs of fees that are enabled
+  totalFees?: number;
 }
 
 interface PaymentDialogProps {
   subtotal: number;
+  fees?: FeeRecord[];
+  totalFees?: number;
+  orderItems?: OrderItem[]; // Cart items to show which products each fee applies to
   bottleDeposit: number;
   bottleDepositBreakdown: Array<{ productName: string; quantity: number; deposit: number; total: number }>;
   total: number;
@@ -22,17 +31,68 @@ interface PaymentDialogProps {
   onCancel: () => void;
 }
 
-export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown, total, onConfirm, onCancel }: PaymentDialogProps) {
+export function PaymentDialog({ subtotal, fees = [], totalFees = 0, orderItems = [], bottleDeposit, bottleDepositBreakdown, total, onConfirm, onCancel }: PaymentDialogProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>("cash");
   const [amountTendered, setAmountTendered] = useState("");
   const [showNumpad, setShowNumpad] = useState(false);
   const [includeBottleDeposit, setIncludeBottleDeposit] = useState(bottleDeposit > 0);
+  // Track which fees are enabled (default: all enabled)
+  const [enabledFeeIds, setEnabledFeeIds] = useState<Set<number>>(() => {
+    const initialSet = new Set<number>();
+    fees.forEach(fee => {
+      if (fee.id) initialSet.add(fee.id);
+    });
+    return initialSet;
+  });
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Calculate adjusted total based on bottle deposit checkbox
+  // Update enabled fees when fees prop changes
+  useEffect(() => {
+    const newSet = new Set<number>();
+    fees.forEach(fee => {
+      if (fee.id) {
+        // Keep existing state if fee was already enabled, otherwise enable by default
+        if (enabledFeeIds.has(fee.id) || enabledFeeIds.size === 0) {
+          newSet.add(fee.id);
+        }
+      }
+    });
+    if (newSet.size > 0) {
+      setEnabledFeeIds(newSet);
+    }
+  }, [fees]);
+
+  // Calculate total fees based on enabled fees only
+  const enabledFeesTotal = useMemo(() => {
+    let total = 0;
+    fees.forEach(fee => {
+      if (fee.id && enabledFeeIds.has(fee.id)) {
+        // Get matching items for this fee
+        const matchingItems = getProductsForFee(fee, orderItems);
+        const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
+        total += calculateFeeAmount(fee, subtotal, matchingItemsCount);
+      }
+    });
+    return total;
+  }, [fees, enabledFeeIds, subtotal, orderItems]);
+
+  // Calculate adjusted total based on enabled fees and bottle deposit checkbox
   const adjustedTotal = useMemo(() => {
-    return includeBottleDeposit ? total : subtotal;
-  }, [includeBottleDeposit, total, subtotal]);
+    const baseTotal = subtotal + enabledFeesTotal;
+    return includeBottleDeposit ? baseTotal + bottleDeposit : baseTotal;
+  }, [includeBottleDeposit, subtotal, enabledFeesTotal, bottleDeposit]);
+
+  const toggleFee = (feeId: number) => {
+    setEnabledFeeIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(feeId)) {
+        newSet.delete(feeId);
+      } else {
+        newSet.add(feeId);
+      }
+      return newSet;
+    });
+  };
 
   const numericAmount = amountTendered ? parseFloat(amountTendered) || 0 : adjustedTotal;
   const change = numericAmount - adjustedTotal;
@@ -45,12 +105,12 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
     }
   }, [selectedMethod]);
 
-  // Reset amount tendered when bottle deposit is toggled
+  // Reset amount tendered when bottle deposit or fees are toggled
   useEffect(() => {
     if (selectedMethod === "cash") {
       setAmountTendered("");
     }
-  }, [includeBottleDeposit, selectedMethod]);
+  }, [includeBottleDeposit, enabledFeeIds, selectedMethod]);
 
   // Auto-focus input when typing numbers
   useEffect(() => {
@@ -66,11 +126,17 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
   }, [selectedMethod]);
 
   const handleConfirm = () => {
+    // Get only enabled fees
+    const enabledFees = fees.filter(fee => fee.id && enabledFeeIds.has(fee.id));
+    
     if (selectedMethod === "gcash") {
       onConfirm({ 
         method: "gcash",
         bottleDeposit: includeBottleDeposit && bottleDeposit > 0 ? bottleDeposit : undefined,
         bottleDepositBreakdown: includeBottleDeposit && bottleDeposit > 0 ? bottleDepositBreakdown : undefined,
+        fees: enabledFees,
+        enabledFeeIds: Array.from(enabledFeeIds),
+        totalFees: enabledFeesTotal,
       });
     } else if (isValidCashAmount) {
       onConfirm({
@@ -79,6 +145,9 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
         change: change,
         bottleDeposit: includeBottleDeposit && bottleDeposit > 0 ? bottleDeposit : undefined,
         bottleDepositBreakdown: includeBottleDeposit && bottleDeposit > 0 ? bottleDepositBreakdown : undefined,
+        fees: enabledFees,
+        enabledFeeIds: Array.from(enabledFeeIds),
+        totalFees: enabledFeesTotal,
       });
     }
   };
@@ -90,6 +159,13 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
       }
     } else if (e.key === "Escape") {
       onCancel();
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      // Navigate payment method with arrow keys
+      if (e.key === "ArrowLeft" && selectedMethod === "gcash") {
+        setSelectedMethod("cash");
+      } else if (e.key === "ArrowRight" && selectedMethod === "cash") {
+        setSelectedMethod("gcash");
+      }
     }
   };
 
@@ -99,9 +175,10 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
   const canConfirm = selectedMethod === "gcash" || isValidCashAmount;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in" onKeyDown={handleKeyDown}>
-        <div className="flex items-center justify-between mb-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl w-full max-w-xl animate-scale-in flex flex-col max-h-[95vh] h-auto" onKeyDown={handleKeyDown}>
+        {/* Header - Fixed */}
+        <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0 border-b border-border/50">
           <h2 className="text-xl font-semibold text-foreground">Payment</h2>
           <button
             onClick={onCancel}
@@ -110,6 +187,9 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
 
         {/* Total Amount */}
         <div className="mb-6 space-y-3">
@@ -122,6 +202,84 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
               </p>
             </div>
             
+            {/* Fees - Toggleable (Compact) */}
+            {fees.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border">
+                {/* Fees Summary */}
+                <div className="mb-3 pb-2 border-b border-border/50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Tag className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-xs font-medium text-muted-foreground">Fees Summary</span>
+                  </div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {fees.map((fee) => {
+                      const feeId = fee.id!;
+                      const isEnabled = enabledFeeIds.has(feeId);
+                      const matchingItems = getProductsForFee(fee, orderItems);
+                      const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
+                      const calculationType = fee.calculation_type || 'per_transaction';
+                      
+                      return (
+                        <div key={feeId} className={`flex items-center justify-between ${!isEnabled ? 'opacity-50' : ''}`}>
+                          <span>
+                            {fee.name}
+                            {calculationType === 'per_item' && matchingItemsCount > 0 && (
+                              <span className="ml-1">({matchingItemsCount} item{matchingItemsCount > 1 ? 's' : ''})</span>
+                            )}
+                            {calculationType === 'per_transaction' && (
+                              <span className="ml-1">(per transaction)</span>
+                            )}
+                          </span>
+                          <span className={isEnabled ? 'text-foreground' : 'line-through'}>
+                            {isEnabled ? '✓' : '✗'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Fees Toggle List */}
+                <div className="space-y-2">
+                  {fees.map((fee) => {
+                    const feeId = fee.id!;
+                    const isEnabled = enabledFeeIds.has(feeId);
+                    const matchingItems = getProductsForFee(fee, orderItems);
+                    const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
+                    const feeAmount = calculateFeeAmount(fee, subtotal, matchingItemsCount);
+                    
+                    return (
+                      <div key={feeId} className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-1">
+                          <Checkbox
+                            id={`fee-${feeId}`}
+                            checked={isEnabled}
+                            onCheckedChange={() => toggleFee(feeId)}
+                            className="h-4 w-4"
+                          />
+                          <label
+                            htmlFor={`fee-${feeId}`}
+                            className={`text-sm cursor-pointer flex-1 ${isEnabled ? 'text-foreground' : 'text-muted-foreground'}`}
+                          >
+                            {fee.name}
+                          </label>
+                        </div>
+                        <span className={`text-sm font-mono ${isEnabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                          ₱{feeAmount.toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {enabledFeesTotal > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border/50 flex justify-between items-center">
+                    <span className="text-xs text-muted-foreground">Total Fees</span>
+                    <span className="text-sm font-semibold font-mono text-foreground">₱{enabledFeesTotal.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Bottle Deposit Breakdown */}
             {bottleDeposit > 0 && (
               <div className="mt-3 pt-3 border-t border-border">
@@ -168,52 +326,58 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
           </div>
         </div>
 
-        {/* Payment Method Selection */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-muted-foreground mb-2">
-            Payment Method
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setSelectedMethod("cash")}
-              className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
-                selectedMethod === "cash"
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-primary/50 hover:bg-secondary/50"
-              }`}
-            >
-              <div className={`p-2 rounded-lg ${selectedMethod === "cash" ? "bg-success/20" : "bg-secondary"}`}>
-                <Banknote className={`w-6 h-6 ${selectedMethod === "cash" ? "text-success" : "text-muted-foreground"}`} />
-              </div>
-              <span className={`font-semibold ${selectedMethod === "cash" ? "text-foreground" : "text-muted-foreground"}`}>
-                Cash
-              </span>
-              {selectedMethod === "cash" && (
-                <Check className="w-4 h-4 text-primary absolute top-2 right-2" />
-              )}
-            </button>
-
-            <button
-              onClick={() => setSelectedMethod("gcash")}
-              className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
-                selectedMethod === "gcash"
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-primary/50 hover:bg-secondary/50"
-              }`}
-            >
-              <div className={`p-2 rounded-lg ${selectedMethod === "gcash" ? "bg-info/20" : "bg-secondary"}`}>
-                <Smartphone className={`w-6 h-6 ${selectedMethod === "gcash" ? "text-info" : "text-muted-foreground"}`} />
-              </div>
-              <span className={`font-semibold ${selectedMethod === "gcash" ? "text-foreground" : "text-muted-foreground"}`}>
-                GCash
-              </span>
-            </button>
+          {/* Payment Method Selection - Compact Text */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
+              Payment Method
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSelectedMethod("cash")}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    if (e.key === "ArrowRight") setSelectedMethod("gcash");
+                  }
+                }}
+                className={`px-4 py-2 rounded-lg border transition-all flex items-center gap-2 ${
+                  selectedMethod === "cash"
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border hover:border-primary/50 hover:bg-secondary/50 text-muted-foreground"
+                }`}
+              >
+                <Banknote className="w-4 h-4" />
+                <span className="font-medium">Cash</span>
+                {selectedMethod === "cash" && (
+                  <Check className="w-4 h-4 text-primary ml-1" />
+                )}
+              </button>
+              <button
+                onClick={() => setSelectedMethod("gcash")}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    if (e.key === "ArrowLeft") setSelectedMethod("cash");
+                  }
+                }}
+                className={`px-4 py-2 rounded-lg border transition-all flex items-center gap-2 ${
+                  selectedMethod === "gcash"
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border hover:border-primary/50 hover:bg-secondary/50 text-muted-foreground"
+                }`}
+              >
+                <Smartphone className="w-4 h-4" />
+                <span className="font-medium">GCash</span>
+                {selectedMethod === "gcash" && (
+                  <Check className="w-4 h-4 text-primary ml-1" />
+                )}
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Cash Payment Details */}
-        {selectedMethod === "cash" && (
-          <div className="space-y-4 mb-6">
+          {/* Cash Payment Details */}
+          {selectedMethod === "cash" && (
+            <div className="space-y-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Amount Tendered
@@ -318,27 +482,30 @@ export function PaymentDialog({ subtotal, bottleDeposit, bottleDepositBreakdown,
           </div>
         )}
 
-        {/* GCash Info */}
-        {selectedMethod === "gcash" && (
-          <div className="mb-6 p-4 bg-info/10 border border-info/30 rounded-lg">
-            <p className="text-sm text-muted-foreground text-center">
-              Customer will pay <span className="font-semibold text-foreground">₱{adjustedTotal.toFixed(2)}</span> via GCash
-            </p>
-          </div>
-        )}
+          {/* GCash Info */}
+          {selectedMethod === "gcash" && (
+            <div className="mb-6 p-4 bg-info/10 border border-info/30 rounded-lg">
+              <p className="text-sm text-muted-foreground text-center">
+                Customer will pay <span className="font-semibold text-foreground">₱{adjustedTotal.toFixed(2)}</span> via GCash
+              </p>
+            </div>
+          )}
+        </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            className="flex-1"
-            disabled={!canConfirm}
-            onClick={handleConfirm}
-          >
-            Confirm Payment
-          </Button>
+        {/* Footer - Fixed */}
+        <div className="p-6 pt-4 flex-shrink-0 border-t border-border/50">
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              disabled={!canConfirm}
+              onClick={handleConfirm}
+            >
+              Confirm Payment
+            </Button>
+          </div>
         </div>
       </div>
     </div>

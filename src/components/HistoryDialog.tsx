@@ -29,7 +29,7 @@ export function HistoryDialog({ product, onClose }: HistoryDialogProps) {
   const isGcash = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
   const [activeTab, setActiveTab] = useState(isGcash ? "transactions" : "expense");
   
-  const { funds: gcashFunds, history: gcashHistory } = useGCashFunds();
+  const { credits: gcashCredits, cash: gcashCash, history: gcashHistory } = useGCashFunds();
 
   useEffect(() => {
     // Skip loading expenses for GCASH (it uses fund history instead)
@@ -117,8 +117,8 @@ export function HistoryDialog({ product, onClose }: HistoryDialogProps) {
   const averageSalePrice = totalSalesQuantity > 0 ? totalSalesRevenue / totalSalesQuantity : 0;
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-4xl mx-4 max-h-[90vh] flex flex-col animate-scale-in">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-4xl max-h-[95vh] flex flex-col animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">
@@ -151,20 +151,30 @@ export function HistoryDialog({ product, onClose }: HistoryDialogProps) {
           {/* GCASH Transactions Tab */}
           {isGcash && (
             <TabsContent value="transactions" className="flex-1 flex flex-col min-h-0 mt-0">
-              {/* Current Balance */}
-              <div className={`p-3 rounded-lg mb-4 border ${
-                gcashFunds < 0 
-                  ? 'bg-destructive/10 border-destructive/20' 
-                  : 'bg-primary/10 border-primary/20'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Current GCASH Balance</span>
-                  <span className={`text-xl font-bold font-mono ${
-                    gcashFunds < 0 ? 'text-destructive' : 'text-primary'
-                  }`}>
-                    ₱{gcashFunds.toFixed(2)}
-                    {gcashFunds < 0 && <span className="ml-1 text-sm">(Negative)</span>}
-                  </span>
+              {/* Current Balances */}
+              <div className="space-y-2 mb-4">
+                <div className={`p-3 rounded-lg border ${
+                  gcashCredits < 0 
+                    ? 'bg-destructive/10 border-destructive/20' 
+                    : 'bg-primary/10 border-primary/20'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">GCash Credits</span>
+                    <span className={`text-xl font-bold font-mono ${
+                      gcashCredits < 0 ? 'text-destructive' : 'text-primary'
+                    }`}>
+                      ₱{gcashCredits.toFixed(2)}
+                      {gcashCredits < 0 && <span className="ml-1 text-sm">(Negative)</span>}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg border bg-warning/10 border-warning/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">GCash Cash</span>
+                    <span className="text-xl font-bold font-mono text-warning">
+                      ₱{gcashCash.toFixed(2)}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -275,12 +285,74 @@ export function HistoryDialog({ product, onClose }: HistoryDialogProps) {
                               </div>
                             )}
                             
-                            {/* Balance after transaction */}
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                              <span>Balance after:</span>
-                              <span className="font-mono font-medium text-foreground">
-                                ₱{transaction.balance.toFixed(2)}
-                              </span>
+                            {/* Credits Usage and Balances */}
+                            <div className="mt-2 p-2 bg-secondary/30 rounded-lg space-y-1.5">
+                              {(() => {
+                                // Sort history by timestamp to ensure chronological order
+                                const sortedHistory = [...gcashHistory].sort((a, b) => a.timestamp - b.timestamp);
+                                
+                                // Calculate credits change
+                                let creditsChange = 0;
+                                let creditsChangeLabel = "";
+                                
+                                const currentIndex = sortedHistory.findIndex(t => t.id === transaction.id);
+                                
+                                if (transaction.type === "add") {
+                                  // Credits are added
+                                  if (currentIndex > 0) {
+                                    const prevTransaction = sortedHistory[currentIndex - 1];
+                                    creditsChange = transaction.creditsBalance - prevTransaction.creditsBalance;
+                                  } else {
+                                    creditsChange = transaction.creditsBalance;
+                                  }
+                                  creditsChangeLabel = "Credits Added";
+                                } else if (transaction.type === "gcash-in") {
+                                  // Credits are deducted for GCASH-IN
+                                  if (currentIndex > 0) {
+                                    const prevTransaction = sortedHistory[currentIndex - 1];
+                                    creditsChange = prevTransaction.creditsBalance - transaction.creditsBalance;
+                                  } else {
+                                    creditsChange = transaction.amount;
+                                  }
+                                  creditsChangeLabel = "Credits Used";
+                                } else if (transaction.type === "gcash-out") {
+                                  // Credits are added for GCASH-OUT
+                                  if (currentIndex > 0) {
+                                    const prevTransaction = sortedHistory[currentIndex - 1];
+                                    creditsChange = transaction.creditsBalance - prevTransaction.creditsBalance;
+                                  } else {
+                                    creditsChange = transaction.amount;
+                                  }
+                                  creditsChangeLabel = "Credits Received";
+                                }
+                                
+                                return (
+                                  <>
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="text-muted-foreground">{creditsChangeLabel}:</span>
+                                      <span className={`font-mono font-semibold ${
+                                        creditsChange >= 0 ? 'text-success' : 'text-destructive'
+                                      }`}>
+                                        {creditsChange >= 0 ? '+' : ''}₱{Math.abs(creditsChange).toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs pt-1 border-t border-border/30">
+                                      <span className="text-muted-foreground">Remaining Credits:</span>
+                                      <span className={`font-mono font-semibold ${
+                                        transaction.creditsBalance < 0 ? 'text-destructive' : 'text-primary'
+                                      }`}>
+                                        ₱{transaction.creditsBalance.toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="text-muted-foreground">Cash Balance:</span>
+                                      <span className="font-mono font-semibold text-warning">
+                                        ₱{transaction.cashBalance.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  </>
+                                );
+                              })()}
                             </div>
                           </div>
                           <div className="text-right text-xs text-muted-foreground whitespace-nowrap">

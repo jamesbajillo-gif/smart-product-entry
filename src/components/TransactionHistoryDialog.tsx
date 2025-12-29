@@ -23,6 +23,7 @@ interface UnifiedTransaction {
   description: string;
   paymentMethod?: string;
   category?: string;
+  operatorName?: string;
   details?: any;
 }
 
@@ -100,6 +101,7 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
           date: sale.created_at ? new Date(sale.created_at) : new Date(),
           description: itemNames || 'Sale',
           paymentMethod: sale.payment_method,
+          operatorName: sale.operator_name,
           details: sale,
         });
       } catch (e) {
@@ -110,6 +112,7 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
           date: sale.created_at ? new Date(sale.created_at) : new Date(),
           description: 'Sale',
           paymentMethod: sale.payment_method,
+          operatorName: sale.operator_name,
           details: sale,
         });
       }
@@ -127,6 +130,7 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
         date: expense.created_at ? new Date(expense.created_at) : new Date(),
         description: description,
         category: expense.category,
+        operatorName: expense.operator_name,
         details: expense,
       });
     });
@@ -141,6 +145,7 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
           date: adj.created_at ? new Date(adj.created_at) : new Date(),
           description: `Restock: ${adj.reason || 'Stock adjustment'}`,
           category: adj.supplier || 'Restock',
+          operatorName: adj.operator_name,
           details: adj,
         });
       }
@@ -156,6 +161,7 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
         date: tx.created_at ? new Date(tx.created_at) : new Date(),
         description: tx.notes || `${tx.transaction_type} - Store Funds`,
         category: tx.category || tx.transaction_type,
+        operatorName: tx.operator_name,
         details: tx,
       });
     });
@@ -277,8 +283,8 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-[98vw] mx-4 max-h-[90vh] flex flex-col animate-scale-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-[98vw] max-h-[95vh] flex flex-col animate-scale-in">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">
@@ -376,41 +382,116 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
               </div>
             ) : (
               <div className="space-y-2">
-                {filteredTransactions.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="glass-panel rounded-lg p-4 hover:bg-secondary/30 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className={`p-2 rounded-lg ${getTransactionColor(tx.type)}/20`}>
-                          {getTransactionIcon(tx.type)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground truncate">{tx.description}</p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-xs text-muted-foreground">{formatDate(tx.date)}</span>
-                            {tx.category && (
-                              <span className="text-xs px-2 py-0.5 bg-secondary rounded text-muted-foreground">
-                                {tx.category}
-                              </span>
-                            )}
-                            {tx.paymentMethod && (
-                              <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
-                                {tx.paymentMethod}
-                              </span>
+                {filteredTransactions.map((tx, index) => {
+                  // For GCash transactions, calculate credit usage
+                  const gcashDetails = tx.type === 'gcash' ? tx.details as GCashFundTransaction : null;
+                  let creditsChange = 0;
+                  let creditsChangeLabel = "";
+                  
+                  if (gcashDetails) {
+                    // Sort transactions by timestamp to ensure chronological order
+                    const sortedTransactions = [...gcashTransactions].sort((a, b) => a.timestamp - b.timestamp);
+                    const currentIndex = sortedTransactions.findIndex(t => t.id === gcashDetails.id);
+                    
+                    if (gcashDetails.type === "add") {
+                      // Credits are added
+                      if (currentIndex > 0) {
+                        const prevTransaction = sortedTransactions[currentIndex - 1];
+                        creditsChange = gcashDetails.creditsBalance - prevTransaction.creditsBalance;
+                      } else {
+                        creditsChange = gcashDetails.creditsBalance;
+                      }
+                      creditsChangeLabel = "Credits Added";
+                    } else if (gcashDetails.type === "gcash-in") {
+                      // Credits are deducted for GCASH-IN
+                      if (currentIndex > 0) {
+                        const prevTransaction = sortedTransactions[currentIndex - 1];
+                        creditsChange = prevTransaction.creditsBalance - gcashDetails.creditsBalance;
+                      } else {
+                        creditsChange = gcashDetails.amount;
+                      }
+                      creditsChangeLabel = "Credits Used";
+                    } else if (gcashDetails.type === "gcash-out") {
+                      // Credits are added for GCASH-OUT
+                      if (currentIndex > 0) {
+                        const prevTransaction = sortedTransactions[currentIndex - 1];
+                        creditsChange = gcashDetails.creditsBalance - prevTransaction.creditsBalance;
+                      } else {
+                        creditsChange = gcashDetails.amount;
+                      }
+                      creditsChangeLabel = "Credits Received";
+                    }
+                  }
+                  
+                  return (
+                    <div
+                      key={tx.id}
+                      className="glass-panel rounded-lg p-4 hover:bg-secondary/30 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-1">
+                          <div className={`p-2 rounded-lg ${getTransactionColor(tx.type)}/20`}>
+                            {getTransactionIcon(tx.type)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-foreground truncate">{tx.description}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-xs text-muted-foreground">{formatDate(tx.date)}</span>
+                              {tx.operatorName && (
+                                <span className="text-xs px-2 py-0.5 bg-info/20 text-info rounded">
+                                  {tx.operatorName}
+                                </span>
+                              )}
+                              {tx.category && (
+                                <span className="text-xs px-2 py-0.5 bg-secondary rounded text-muted-foreground">
+                                  {tx.category}
+                                </span>
+                              )}
+                              {tx.paymentMethod && (
+                                <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
+                                  {tx.paymentMethod}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* GCash Credits Usage and Balance */}
+                            {gcashDetails && (
+                              <div className="mt-2 p-2 bg-secondary/30 rounded-lg space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">{creditsChangeLabel}:</span>
+                                  <span className={`font-mono font-semibold ${
+                                    creditsChange >= 0 ? 'text-success' : 'text-destructive'
+                                  }`}>
+                                    {creditsChange >= 0 ? '+' : ''}₱{Math.abs(creditsChange).toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs pt-1 border-t border-border/30">
+                                  <span className="text-muted-foreground">Remaining Credits:</span>
+                                  <span className={`font-mono font-semibold ${
+                                    gcashDetails.creditsBalance < 0 ? 'text-destructive' : 'text-primary'
+                                  }`}>
+                                    ₱{gcashDetails.creditsBalance.toFixed(2)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">Cash Balance:</span>
+                                  <span className="font-mono font-semibold text-warning">
+                                    ₱{gcashDetails.cashBalance.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
                             )}
                           </div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <p className={`text-lg font-bold ${tx.amount >= 0 ? 'text-success' : 'text-destructive'}`}>
-                          {tx.amount >= 0 ? '+' : ''}₱{Math.abs(tx.amount).toFixed(2)}
-                        </p>
+                        <div className="text-right">
+                          <p className={`text-lg font-bold ${tx.amount >= 0 ? 'text-success' : 'text-destructive'}`}>
+                            {tx.amount >= 0 ? '+' : ''}₱{Math.abs(tx.amount).toFixed(2)}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </TabsContent>

@@ -395,126 +395,210 @@ export function useMySQLSync() {
   // Record sale
   const recordSale = useCallback(
     async (orderItems: OrderItem[], paymentDetails: PaymentDetails) => {
-      const subtotal = orderItems.reduce((sum, item) => {
-        const productTotal = item.product.price * item.quantity;
-        const servicesTotal = (item.selectedServices || []).reduce(
-          (serviceSum, service) => serviceSum + service.price * item.quantity,
-          0
-        );
-        return sum + productTotal + servicesTotal;
-      }, 0);
-      
-      // Include bottle deposit in total if present
-      const bottleDeposit = paymentDetails.bottleDeposit || 0;
-      const total = subtotal + bottleDeposit;
-
-      // Build items array with bottle deposit info for beverages and services
-      const itemsData = orderItems.map((item) => {
-        const itemData: any = {
-          productId: item.product.id,
-          name: item.product.name,
-          price: item.product.price,
-          quantity: item.quantity,
-        };
-        
-        // Add services if present
-        if (item.selectedServices && item.selectedServices.length > 0) {
-          itemData.services = item.selectedServices.map((service) => ({
-            id: service.id,
-            name: service.name,
-            price: service.price,
-          }));
-          // Calculate total service fee for this item
-          itemData.serviceFeeTotal = item.selectedServices.reduce(
-            (sum, service) => sum + service.price * item.quantity,
+      try {
+        // Calculate subtotal using customTotal if set, otherwise use product price
+        const subtotal = orderItems.reduce((sum, item) => {
+          // Use customTotal if set, otherwise calculate from product price
+          const itemPrice = item.customTotal !== undefined 
+            ? item.customTotal 
+            : item.product.price * item.quantity;
+          const servicesTotal = (item.selectedServices || []).reduce(
+            (serviceSum, service) => serviceSum + service.price * item.quantity,
             0
           );
-        }
+          return sum + itemPrice + servicesTotal;
+        }, 0);
         
-        // Add bottle deposit info for beverages
-        if (item.product.category?.toLowerCase().trim() === 'beverages' && bottleDeposit > 0) {
-          const depositBreakdown = paymentDetails.bottleDepositBreakdown?.find(
-            b => b.productName === item.product.name
+        // Include fees and bottle deposit in total
+        const fees = paymentDetails.totalFees || 0;
+        const bottleDeposit = paymentDetails.bottleDeposit || 0;
+        const total = subtotal + fees + bottleDeposit;
+
+        // Build items array with bottle deposit info for beverages and services
+        const itemsData = orderItems.map((item) => {
+          // Calculate item total (use customTotal if set)
+          const itemPrice = item.customTotal !== undefined 
+            ? item.customTotal 
+            : item.product.price * item.quantity;
+          const servicesTotal = (item.selectedServices || []).reduce(
+            (serviceSum, service) => serviceSum + service.price * item.quantity,
+            0
           );
-          if (depositBreakdown) {
-            itemData.bottleDeposit = depositBreakdown.deposit;
-            itemData.bottleDepositTotal = depositBreakdown.total;
+          const itemTotal = itemPrice + servicesTotal;
+          
+          const itemData: any = {
+            productId: item.product.id,
+            name: item.product.name,
+            price: item.product.price, // Keep original price for reference
+            quantity: item.quantity,
+            total: itemTotal, // Total for this item (includes customTotal if set)
+          };
+          
+          // Include customTotal if it was set (for discounts/overrides)
+          if (item.customTotal !== undefined) {
+            itemData.customTotal = item.customTotal;
           }
-        }
-        
-        return itemData;
-      });
-
-      const saleData = {
-        items: JSON.stringify(itemsData),
-        total,
-        payment_method: paymentDetails.method,
-        amount_tendered: paymentDetails.amountTendered,
-        change_amount: paymentDetails.change,
-        created_at: new Date().toISOString(),
-      };
-
-      // Update quantity history locally
-      const newHistory = { ...quantityHistory };
-      const quantityUpdates: { productId: string; quantities: number[] }[] = [];
-
-      for (const item of orderItems) {
-        const existing = newHistory[item.product.id] || [];
-        newHistory[item.product.id] = [...existing, item.quantity].slice(-10);
-        quantityUpdates.push({
-          productId: item.product.id,
-          quantities: newHistory[item.product.id],
-        });
-      }
-      setQuantityHistory(newHistory);
-
-      if (isOnline) {
-        try {
-          const result = await salesApi.create(saleData);
-          if (result.success) {
-            // Update quantity history in DB
-            for (const update of quantityUpdates) {
-              await quantityHistoryApi.upsert(update.productId, update.quantities);
-            }
-            
-            // Auto-deduct stock for each product sold
-            for (const item of orderItems) {
-              const product = products.find(p => p.id === item.product.id);
-              if (product && product.stock_quantity !== undefined) {
-                await stockApi.recordSale(item.product.id, item.quantity, product.stock_quantity);
-              }
-            }
-            
-            // Update local product stock
-            setProducts(prev => prev.map(p => {
-              const soldItem = orderItems.find(item => item.product.id === p.id);
-              if (soldItem && p.stock_quantity !== undefined) {
-                return { ...p, stock_quantity: Math.max(0, p.stock_quantity - soldItem.quantity) };
-              }
-              return p;
+          
+          // Add services if present
+          if (item.selectedServices && item.selectedServices.length > 0) {
+            itemData.services = item.selectedServices.map((service) => ({
+              id: service.id,
+              name: service.name,
+              price: service.price,
             }));
-            
-            return;
+            // Calculate total service fee for this item
+            itemData.serviceFeeTotal = item.selectedServices.reduce(
+              (sum, service) => sum + service.price * item.quantity,
+              0
+            );
           }
-        } catch (error) {
-          console.error("Failed to record sale online:", error);
+          
+          // Add bottle deposit info for beverages
+          if (item.product.category?.toLowerCase().trim() === 'beverages' && bottleDeposit > 0) {
+            const depositBreakdown = paymentDetails.bottleDepositBreakdown?.find(
+              b => b.productName === item.product.name
+            );
+            if (depositBreakdown) {
+              itemData.bottleDeposit = depositBreakdown.deposit;
+              itemData.bottleDepositTotal = depositBreakdown.total;
+            }
+          }
+          
+          return itemData;
+        });
+
+        const saleData = {
+          items: JSON.stringify(itemsData),
+          total,
+          payment_method: paymentDetails.method,
+          amount_tendered: paymentDetails.amountTendered,
+          change_amount: paymentDetails.change,
+          created_at: new Date().toISOString(),
+        };
+
+        // Update quantity history locally
+        const newHistory = { ...quantityHistory };
+        const quantityUpdates: { productId: string; quantities: number[] }[] = [];
+
+        for (const item of orderItems) {
+          const existing = newHistory[item.product.id] || [];
+          newHistory[item.product.id] = [...existing, item.quantity].slice(-10);
+          quantityUpdates.push({
+            productId: item.product.id,
+            quantities: newHistory[item.product.id],
+          });
+        }
+        setQuantityHistory(newHistory);
+
+        if (isOnline) {
+          try {
+            const result = await salesApi.create(saleData);
+            if (result.success) {
+              // Update quantity history in DB (with error handling)
+              for (const update of quantityUpdates) {
+                try {
+                  await quantityHistoryApi.upsert(update.productId, update.quantities);
+                } catch (error) {
+                  console.error(`Failed to update quantity history for ${update.productId}:`, error);
+                  // Continue with other updates even if one fails
+                }
+              }
+              
+              // Auto-deduct stock for each product sold (with individual error handling)
+              for (const item of orderItems) {
+                const product = products.find(p => p.id === item.product.id);
+                if (product && product.stock_quantity !== undefined) {
+                  try {
+                    await stockApi.recordSale(item.product.id, item.quantity, product.stock_quantity);
+                  } catch (error) {
+                    console.error(`Failed to update stock for product ${item.product.id}:`, error);
+                    // Continue with other products even if one fails
+                  }
+                }
+              }
+              
+              // Update local product stock (always update locally for better UX)
+              setProducts(prev => prev.map(p => {
+                const soldItem = orderItems.find(item => item.product.id === p.id);
+                if (soldItem && p.stock_quantity !== undefined) {
+                  return { ...p, stock_quantity: Math.max(0, p.stock_quantity - soldItem.quantity) };
+                }
+                return p;
+              }));
+              
+              return;
+            }
+          } catch (error) {
+            console.error("Failed to record sale online:", error);
+          }
+        }
+
+        // Store in pending queue for later sync
+        const pendingSale: PendingSale = {
+          id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          data: saleData,
+          quantityUpdates,
+          createdAt: Date.now(),
+        };
+
+        const updatedPending = [...pendingSales, pendingSale];
+        savePendingSales(updatedPending);
+        setPendingSales(updatedPending);
+        console.log("Sale queued for sync:", pendingSale.id);
+      } catch (error) {
+        // Catch any unexpected errors to prevent UI from breaking
+        console.error("Unexpected error in recordSale:", error);
+        // Still queue the sale locally so it can be synced later
+        try {
+          // Fallback: simpler sale data structure (still include customTotal if present)
+          const fallbackSubtotal = orderItems.reduce((sum, item) => {
+            const itemPrice = item.customTotal !== undefined 
+              ? item.customTotal 
+              : item.product.price * item.quantity;
+            return sum + itemPrice;
+          }, 0);
+          const fallbackFees = paymentDetails.totalFees || 0;
+          const fallbackBottleDeposit = paymentDetails.bottleDeposit || 0;
+          const fallbackTotal = fallbackSubtotal + fallbackFees + fallbackBottleDeposit;
+          
+          const saleData = {
+            items: JSON.stringify(orderItems.map(item => {
+              const itemPrice = item.customTotal !== undefined 
+                ? item.customTotal 
+                : item.product.price * item.quantity;
+              const itemData: any = {
+                productId: item.product.id,
+                name: item.product.name,
+                price: item.product.price,
+                quantity: item.quantity,
+                total: itemPrice,
+              };
+              if (item.customTotal !== undefined) {
+                itemData.customTotal = item.customTotal;
+              }
+              return itemData;
+            })),
+            total: fallbackTotal,
+            payment_method: paymentDetails.method,
+            amount_tendered: paymentDetails.amountTendered,
+            change_amount: paymentDetails.change,
+            created_at: new Date().toISOString(),
+          };
+          const pendingSale: PendingSale = {
+            id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            data: saleData,
+            quantityUpdates: [],
+            createdAt: Date.now(),
+          };
+          const updatedPending = [...pendingSales, pendingSale];
+          savePendingSales(updatedPending);
+          setPendingSales(updatedPending);
+        } catch (fallbackError) {
+          console.error("Failed to queue sale even in fallback:", fallbackError);
         }
       }
-
-      // Store in pending queue for later sync
-      const pendingSale: PendingSale = {
-        id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        data: saleData,
-        quantityUpdates,
-        createdAt: Date.now(),
-      };
-
-      const updatedPending = [...pendingSales, pendingSale];
-      savePendingSales(updatedPending);
-      setPendingSales(updatedPending);
-      console.log("Sale queued for sync:", pendingSale.id);
     },
-    [isOnline, quantityHistory, pendingSales]
+    [isOnline, quantityHistory, pendingSales, products]
   );
 
   // Manual sync trigger

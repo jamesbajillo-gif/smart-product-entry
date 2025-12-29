@@ -98,8 +98,8 @@ export function GCashTransactionsDialog({ sales, onClose }: GCashTransactionsDia
   }, [gcashTransactions]);
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-4">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-5xl mx-4 max-h-[90vh] flex flex-col animate-scale-in">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-5xl max-h-[95vh] flex flex-col animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">

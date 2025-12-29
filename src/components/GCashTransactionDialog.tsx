@@ -28,16 +28,22 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
   const [gcashNumber, setGcashNumber] = useState("");
   const [notes, setNotes] = useState("");
   const [deductServiceFeeFromGCash, setDeductServiceFeeFromGCash] = useState(false);
+  const [overrideServiceCharge, setOverrideServiceCharge] = useState(false);
+  const [overrideServiceChargeAmount, setOverrideServiceChargeAmount] = useState("");
   const amountRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     requestAnimationFrame(() => amountRef.current?.focus());
   }, []);
 
-  // Auto-focus amount input when typing numbers
+  // Auto-focus amount input when typing numbers (only if no input is focused)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (/^[0-9.]$/.test(e.key)) {
+      // Only auto-focus if no input field is currently focused
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA';
+      
+      if (/^[0-9.]$/.test(e.key) && !isInputFocused) {
         if (document.activeElement !== amountRef.current) {
           amountRef.current?.focus();
         }
@@ -57,15 +63,26 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
     return 0; // No service charge for amounts outside these ranges
   };
   
-  const serviceCharge = numericAmount > 0 ? calculateServiceCharge(numericAmount) : 0;
+  const calculatedServiceCharge = numericAmount > 0 ? calculateServiceCharge(numericAmount) : 0;
+  // Parse override amount - allow 0 as valid value
+  const overrideServiceChargeNumeric = overrideServiceChargeAmount.trim() !== "" 
+    ? (isNaN(parseFloat(overrideServiceChargeAmount)) ? null : parseFloat(overrideServiceChargeAmount))
+    : null;
+  // Use override if checkbox is checked and a valid numeric value is entered (including 0)
+  const serviceCharge = overrideServiceCharge && overrideServiceChargeNumeric !== null
+    ? overrideServiceChargeNumeric
+    : calculatedServiceCharge;
   // Calculate total amount customer pays/sends
-  // For GCASH-IN: If deductServiceFeeFromGCash is enabled, customer pays only the amount (no service charge)
-  //               Otherwise, customer pays amount + service charge
+  // For GCASH-IN: 
+  //   - Amount entered = GCash credits customer receives (transaction value)
+  //   - Customer pays: amount (the transaction value)
+  //   - Service charge: separate revenue (added to cash, not part of transaction)
+  //   - If deductServiceFeeFromGCash: service charge deducted from GCash credits instead
   // For GCASH-OUT: If deductServiceFeeFromGCash is enabled, customer sends amount + service charge
   //                Otherwise, customer sends only the amount (service fee paid separately in cash)
   const totalAmount = transactionType === "gcash-out" 
     ? (deductServiceFeeFromGCash ? numericAmount + serviceCharge : numericAmount)  // GCASH-OUT: Depends on option
-    : (deductServiceFeeFromGCash ? numericAmount : numericAmount + serviceCharge);  // GCASH-IN: Depends on option
+    : (deductServiceFeeFromGCash ? numericAmount : numericAmount);  // GCASH-IN: Customer pays amount (transaction value), service charge is separate
   const isValid = numericAmount > 0;
   // Allow transactions even with insufficient funds - will show negative balance
   const isValidTransaction = isValid;
@@ -112,12 +129,12 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
   };
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-4">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-2xl mx-4 animate-scale-in">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-2xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-lg">
-              <Smartphone className="w-5 h-5 text-primary" />
+            <div className="p-2 bg-warning/20 rounded-lg">
+              <Smartphone className="w-5 h-5 text-warning" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-foreground">GCash Transaction</h2>
@@ -142,8 +159,8 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
               onClick={() => setTransactionType("gcash-in")}
               className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 relative ${
                 transactionType === "gcash-in"
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                  ? "border-warning bg-warning/10"
+                  : "border-border hover:border-warning/50 hover:bg-secondary/50"
               }`}
             >
               <div className={`p-2 rounded-lg ${transactionType === "gcash-in" ? "bg-success/20" : "bg-secondary"}`}>
@@ -161,8 +178,8 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
               onClick={() => setTransactionType("gcash-out")}
               className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 relative ${
                 transactionType === "gcash-out"
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                  ? "border-warning bg-warning/10"
+                  : "border-border hover:border-warning/50 hover:bg-secondary/50"
               }`}
             >
               <div className={`p-2 rounded-lg ${transactionType === "gcash-out" ? "bg-info/20" : "bg-secondary"}`}>
@@ -173,7 +190,7 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
               </span>
               <p className="text-xs text-muted-foreground text-center mt-1">
                 We give customer cash<br />Customer sends GCash credit<br />
-                <span className="text-primary font-medium">Service fee applies</span>
+                <span className="text-warning font-medium">Service fee applies</span>
               </p>
             </button>
           </div>
@@ -228,34 +245,34 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
                   <>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-muted-foreground">Service Charge:</span>
-                      <span className="text-sm font-mono text-primary">₱{serviceCharge.toFixed(2)}</span>
+                      <span className="text-sm font-mono text-warning">₱{serviceCharge.toFixed(2)}</span>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-border/50">
                       <span className="text-sm font-medium text-foreground">Total to Receive (GCash):</span>
-                      <span className="text-lg font-bold font-mono text-primary">₱{totalAmount.toFixed(2)}</span>
+                      <span className="text-lg font-bold font-mono text-warning">₱{totalAmount.toFixed(2)}</span>
                     </div>
                     {!deductServiceFeeFromGCash && (
                       <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
                         <span className="text-sm font-medium text-foreground">Service Fee (Cash):</span>
-                        <span className="text-sm font-mono text-primary">₱{serviceCharge.toFixed(2)}</span>
+                        <span className="text-sm font-mono text-warning">₱{serviceCharge.toFixed(2)}</span>
                       </div>
                     )}
-                    <div className="mt-3 pt-3 border-t border-border/30 bg-primary/5 rounded-lg p-2">
+                    <div className="mt-3 pt-3 border-t border-border/30 bg-warning/5 rounded-lg p-2">
                       <p className="text-xs text-center text-muted-foreground mb-1">
                         <span className="font-semibold text-foreground">Transaction Summary:</span>
                       </p>
                       <p className="text-xs text-center text-foreground">
-                        Customer sends <span className="font-bold text-primary">₱{totalAmount.toFixed(2)}</span> GCash
+                        Customer sends <span className="font-bold text-warning">₱{totalAmount.toFixed(2)}</span> GCash
                       </p>
                       <p className="text-xs text-center text-foreground">
                         Receives <span className="font-bold text-success">₱{numericAmount.toFixed(2)}</span> cash
                       </p>
-                      <p className="text-xs text-center text-primary font-medium mt-1">
+                      <p className="text-xs text-center text-warning font-medium mt-1">
                         Service fee: ₱{serviceCharge.toFixed(2)}
                       </p>
                       {deductServiceFeeFromGCash ? (
                         <p className="text-xs text-center text-muted-foreground mt-1">
-                          Fee is <span className="font-semibold text-primary">deducted from sender</span> (from GCash balance)
+                          Fee is <span className="font-semibold text-warning">deducted from sender</span> (from GCash balance)
                           <br />
                           <span className="text-xs">₱{totalAmount.toFixed(2)} received - ₱{serviceCharge.toFixed(2)} fee = ₱{numericAmount.toFixed(2)} net to GCash</span>
                         </p>
@@ -274,7 +291,7 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
                       No service charge for amounts outside ₱10-₱1,000 range
                     </p>
                     <p className="text-xs text-center text-foreground mt-2">
-                      Customer sends <span className="font-bold text-primary">₱{numericAmount.toFixed(2)}</span> GCash
+                      Customer sends <span className="font-bold text-warning">₱{numericAmount.toFixed(2)}</span> GCash
                       <br />
                       Receives <span className="font-bold text-success">₱{numericAmount.toFixed(2)}</span> cash
                     </p>
@@ -291,11 +308,15 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
                   <>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-muted-foreground">Service Charge:</span>
-                      <span className="text-sm font-mono text-primary">₱{serviceCharge.toFixed(2)}</span>
+                      <span className="text-sm font-mono text-warning">₱{serviceCharge.toFixed(2)}</span>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-border/50">
                       <span className="text-sm font-medium text-foreground">Total to Pay (Cash):</span>
-                      <span className="text-lg font-bold font-mono text-primary">₱{totalAmount.toFixed(2)}</span>
+                      <span className="text-lg font-bold font-mono text-warning">₱{numericAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-xs text-muted-foreground">Service Charge (Revenue):</span>
+                      <span className="text-xs font-mono text-warning">₱{serviceCharge.toFixed(2)}</span>
                     </div>
                     {deductServiceFeeFromGCash && (
                       <p className="text-xs text-muted-foreground mt-2 text-center">
@@ -309,9 +330,100 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
           </div>
         )}
 
+        {/* Override Service Charge Option (GCASH-OUT only) */}
+        {numericAmount > 0 && transactionType === "gcash-out" && (
+          <div className="mb-4 p-3 bg-secondary/30 rounded-lg border border-border/50">
+            <div className="flex items-center gap-3 mb-3">
+              <Checkbox
+                id="override-service-charge"
+                checked={overrideServiceCharge}
+                onCheckedChange={(checked) => {
+                  setOverrideServiceCharge(checked === true);
+                  if (!checked) {
+                    setOverrideServiceChargeAmount("");
+                  }
+                }}
+              />
+              <label
+                htmlFor="override-service-charge"
+                className="text-sm font-medium text-foreground cursor-pointer flex-1"
+              >
+                Override service charge amount
+              </label>
+            </div>
+            {overrideServiceCharge && (
+              <div className="ml-7 mb-3">
+                <label className="block text-xs text-muted-foreground mb-2">
+                  Service Charge Amount (₱)
+                </label>
+                {/* Quick Select Buttons */}
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setOverrideServiceChargeAmount("5")}
+                    className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
+                      overrideServiceChargeAmount === "5"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-secondary/80 border-border"
+                    }`}
+                  >
+                    ₱5
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOverrideServiceChargeAmount("10")}
+                    className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
+                      overrideServiceChargeAmount === "10"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-secondary/80 border-border"
+                    }`}
+                  >
+                    ₱10
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOverrideServiceChargeAmount("15")}
+                    className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
+                      overrideServiceChargeAmount === "15"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary hover:bg-secondary/80 border-border"
+                    }`}
+                  >
+                    ₱15
+                  </button>
+                </div>
+                {/* Manual Input */}
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-xs">
+                    ₱
+                  </span>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={overrideServiceChargeAmount}
+                    onChange={(e) => setOverrideServiceChargeAmount(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Stop propagation to prevent triggering main amount input focus
+                      e.stopPropagation();
+                    }}
+                    placeholder={calculatedServiceCharge > 0 ? calculatedServiceCharge.toFixed(2) : "0.00"}
+                    className="pl-8 pr-3 py-2 text-sm font-mono"
+                  />
+                </div>
+                {calculatedServiceCharge > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Calculated: ₱{calculatedServiceCharge.toFixed(2)}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Deduct Service Fee from GCash Option */}
         {numericAmount > 0 && serviceCharge > 0 && transactionType === "gcash-out" && (
-          <div className="mb-4 p-3 bg-primary/5 rounded-lg border border-primary/20">
+          <div className="mb-4 p-3 bg-warning/5 rounded-lg border border-warning/20">
             <div className="flex items-center gap-3">
               <Checkbox
                 id="deduct-service-fee"
@@ -334,7 +446,7 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
         )}
         {/* For GCASH-IN, show option if needed */}
         {numericAmount > 0 && serviceCharge > 0 && transactionType === "gcash-in" && (
-          <div className="mb-4 p-3 bg-primary/5 rounded-lg border border-primary/20">
+          <div className="mb-4 p-3 bg-warning/5 rounded-lg border border-warning/20">
             <div className="flex items-center gap-3">
               <Checkbox
                 id="deduct-service-fee-in"

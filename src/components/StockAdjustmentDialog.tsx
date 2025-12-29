@@ -302,8 +302,8 @@ export function StockAdjustmentDialog({
   };
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-2xl mx-4 animate-scale-in max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-2xl animate-scale-in max-h-[95vh] overflow-y-auto flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-success/20 rounded-lg">

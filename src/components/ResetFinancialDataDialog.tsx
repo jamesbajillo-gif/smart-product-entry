@@ -85,7 +85,18 @@ export function ResetFinancialDataDialog({ open, onClose, onComplete }: ResetFin
         }
       }
 
-      // Reset GCash funds and history
+      // Delete all GCash funds transactions
+      const gcashResult = await apiRequest<Array<{ id: number }>>("GET", {
+        table: "gcash_funds",
+        limit: 10000,
+      });
+      if (gcashResult.success && gcashResult.data) {
+        for (const tx of gcashResult.data) {
+          await apiRequest("DELETE", { table: "gcash_funds", id: tx.id });
+        }
+      }
+      
+      // Reset GCash funds and history (local state)
       setGcashFunds(0);
       setGcashHistory([]);
 
@@ -124,7 +135,7 @@ export function ResetFinancialDataDialog({ open, onClose, onComplete }: ResetFin
 
   return (
     <AlertDialog open={open} onOpenChange={onClose}>
-      <AlertDialogContent className="w-[95vw] max-w-2xl">
+      <AlertDialogContent className="w-full max-w-2xl max-h-[95vh] overflow-y-auto">
         <AlertDialogHeader>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-destructive/20 rounded-lg">

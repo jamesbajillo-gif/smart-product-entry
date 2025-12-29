@@ -7,6 +7,7 @@ import { expensesApi } from "@/services/mysqlApi";
 interface EditVariationDialogProps {
   productName: string;
   variation: ProductVariation;
+  allVariations?: ProductVariation[]; // All variations for duplicate name checking
   onConfirm: (variationId: string, newPrice: number, newName?: string, suppliers?: ProductSupplier[]) => void;
   onCancel: () => void;
 }
@@ -14,6 +15,7 @@ interface EditVariationDialogProps {
 export function EditVariationDialog({ 
   productName,
   variation, 
+  allVariations = [],
   onConfirm, 
   onCancel 
 }: EditVariationDialogProps) {
@@ -23,6 +25,23 @@ export function EditVariationDialog({
   const [availableSuppliers, setAvailableSuppliers] = useState<string[]>([]);
   const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
   const priceInputRef = useRef<HTMLInputElement>(null);
+  
+  // Check for duplicate variation names with same price (excluding current variation)
+  const hasDuplicateNameAndPrice = (name: string, price: number): boolean => {
+    if (!name.trim()) return false; // Empty names are allowed (will auto-generate)
+    const trimmedName = name.trim();
+    const numericPrice = parseFloat(price.toString()) || 0;
+    if (numericPrice <= 0) return false;
+    
+    return allVariations.some((v) => {
+      if (v.id === variation.id) return false; // Exclude current variation
+      const vName = v.name ? v.name.trim() : '';
+      const vPrice = typeof v.price === 'number' ? v.price : 0;
+      // Check if same name (case-insensitive) AND same price (with floating point tolerance)
+      return vName.toLowerCase() === trimmedName.toLowerCase() && 
+             Math.abs(vPrice - numericPrice) < 0.01;
+    });
+  };
 
   // Load available suppliers from database
   useEffect(() => {
@@ -82,12 +101,19 @@ export function EditVariationDialog({
     e.preventDefault();
     const numericPrice = parseFloat(price);
     if (numericPrice > 0) {
+      // Check for duplicate name with same price
+      const trimmedName = variationName.trim();
+      const finalName = trimmedName || `${productName} - ₱${numericPrice.toFixed(2)}`;
+      if (hasDuplicateNameAndPrice(finalName, numericPrice)) {
+        return; // Don't submit if duplicate name+price exists
+      }
+      
       // Filter out suppliers with no name
       const validSuppliers = suppliers.filter((s) => s.name.trim() !== "");
       onConfirm(
         variation.id, 
         numericPrice, 
-        variationName.trim() || undefined,
+        trimmedName || undefined,
         validSuppliers.length > 0 ? validSuppliers : undefined
       );
     }
@@ -100,9 +126,9 @@ export function EditVariationDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
       <div
-        className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in"
+        className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col"
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between mb-6">
@@ -132,12 +158,33 @@ export function EditVariationDialog({
               type="text"
               value={variationName}
               onChange={(e) => setVariationName(e.target.value)}
-              className="w-full px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className={`w-full px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                (() => {
+                  const numericPrice = parseFloat(price) || 0;
+                  const finalName = variationName.trim() || `${productName} - ₱${numericPrice.toFixed(2)}`;
+                  return hasDuplicateNameAndPrice(finalName, numericPrice);
+                })() ? 'border border-destructive/50' : ''
+              }`}
               placeholder={`e.g., ${productName} - Small, ${productName} - Large`}
             />
-            <p className="text-xs text-muted-foreground mt-1">
-              Leave empty to auto-generate: "{productName} - ₱X.XX"
-            </p>
+            {(() => {
+              const numericPrice = parseFloat(price) || 0;
+              const finalName = variationName.trim() || `${productName} - ₱${numericPrice.toFixed(2)}`;
+              const isDuplicate = hasDuplicateNameAndPrice(finalName, numericPrice);
+              
+              if (isDuplicate) {
+                return (
+                  <p className="text-xs text-destructive mt-1">
+                    A variation with this name and price already exists. Use a different name or price.
+                  </p>
+                );
+              }
+              return (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Leave empty to auto-generate: "{productName} - ₱X.XX"
+                </p>
+              );
+            })()}
           </div>
 
           <div>
@@ -308,7 +355,12 @@ export function EditVariationDialog({
             <Button
               type="submit"
               className="flex-1 glow-primary"
-              disabled={!price || parseFloat(price) <= 0}
+              disabled={(() => {
+                const numericPrice = parseFloat(price) || 0;
+                if (!price || numericPrice <= 0) return true;
+                const finalName = variationName.trim() || `${productName} - ₱${numericPrice.toFixed(2)}`;
+                return hasDuplicateNameAndPrice(finalName, numericPrice);
+              })()}
             >
               Save Changes
             </Button>

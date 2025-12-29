@@ -46,15 +46,17 @@ export function ServiceSelectionDialog({
     } else if (e.key === "Enter" && selectedServices.length >= 0) {
       handleConfirm();
     }
+    // Space key toggles services when focused on a service button
+    // This is handled by the button's onKeyDown handler
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4"
       onKeyDown={handleKeyDown}
     >
       <div
-        className="glass-panel rounded-xl p-6 w-[95vw] max-w-md mx-4 animate-scale-in"
+        className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -94,6 +96,12 @@ export function ServiceSelectionDialog({
                       key={service.id}
                       type="button"
                       onClick={() => toggleService(service)}
+                      onKeyDown={(e) => {
+                        if (e.key === " " || e.key === "Enter") {
+                          e.preventDefault();
+                          toggleService(service);
+                        }
+                      }}
                       className={`w-full p-3 rounded-lg border-2 transition-all ${
                         isSelected
                           ? "border-primary bg-primary/10"

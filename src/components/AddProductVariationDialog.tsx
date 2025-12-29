@@ -65,9 +65,9 @@ export function AddProductVariationDialog({
   ].sort((a, b) => a - b);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
       <div
-        className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in"
+        className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col"
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between mb-6">
@@ -156,36 +156,30 @@ export function AddProductVariationDialog({
             </div>
             {(() => {
               const numericPrice = parseFloat(price) || 0;
-              const priceExists = numericPrice > 0 && (
-                existingPrices.includes(numericPrice) || 
-                validVariations.some((v: any) => v.price === numericPrice)
-              );
+              if (numericPrice <= 0) return null;
               
-              if (priceExists) {
-                const nameProvided = variationName.trim().length > 0;
-                const finalName = nameProvided 
-                  ? variationName.trim() 
-                  : `${product.name} - ₱${numericPrice.toFixed(2)}`;
-                
-                // Check if a variation with same name and price already exists
-                const duplicateExists = validVariations.some((v: any) => 
-                  v.price === numericPrice && v.name === finalName
+              const nameProvided = variationName.trim().length > 0;
+              const finalName = nameProvided 
+                ? variationName.trim() 
+                : `${product.name} - ₱${numericPrice.toFixed(2)}`;
+              
+              // Check if a variation with same name AND same price already exists
+              const duplicateExists = validVariations.some((v: any) => {
+                const vName = v.name ? v.name.trim() : '';
+                const vPrice = typeof v.price === 'number' ? v.price : 0;
+                // Compare names (case-insensitive) and prices (exact match)
+                return vName.toLowerCase() === finalName.toLowerCase() && 
+                       Math.abs(vPrice - numericPrice) < 0.01; // Allow for floating point precision
+              });
+              
+              if (duplicateExists) {
+                return (
+                  <p className="text-xs text-destructive mt-1">
+                    A variation with this name and price already exists. Use a different name or price.
+                  </p>
                 );
-                
-                if (duplicateExists) {
-                  return (
-                    <p className="text-xs text-destructive mt-1">
-                      A variation with this name and price already exists
-                    </p>
-                  );
-                } else if (!nameProvided) {
-                  return (
-                    <p className="text-xs text-warning mt-1">
-                      This price already exists. Please provide a unique variation name.
-                    </p>
-                  );
-                }
               }
+              
               return null;
             })()}
           </div>
@@ -227,25 +221,21 @@ export function AddProductVariationDialog({
                 const numericPrice = parseFloat(price) || 0;
                 if (!price || numericPrice <= 0) return true;
                 
-                // Check if price exists
-                const priceExists = existingPrices.includes(numericPrice) || 
-                  validVariations.some((v: any) => v.price === numericPrice);
+                const nameProvided = variationName.trim().length > 0;
+                const finalName = nameProvided 
+                  ? variationName.trim() 
+                  : `${product.name} - ₱${numericPrice.toFixed(2)}`;
                 
-                if (priceExists) {
-                  // If price exists, require a unique name
-                  const nameProvided = variationName.trim().length > 0;
-                  if (!nameProvided) return true; // Block if no name provided
-                  
-                  // Check if variation with same name and price exists
-                  const finalName = variationName.trim();
-                  const duplicateExists = validVariations.some((v: any) => 
-                    v.price === numericPrice && v.name === finalName
-                  );
-                  
-                  return duplicateExists; // Block if duplicate name+price exists
-                }
+                // Check if variation with same name AND same price exists
+                const duplicateExists = validVariations.some((v: any) => {
+                  const vName = v.name ? v.name.trim() : '';
+                  const vPrice = typeof v.price === 'number' ? v.price : 0;
+                  // Compare names (case-insensitive) and prices (exact match)
+                  return vName.toLowerCase() === finalName.toLowerCase() && 
+                         Math.abs(vPrice - numericPrice) < 0.01; // Allow for floating point precision
+                });
                 
-                return false; // Allow if price doesn't exist
+                return duplicateExists; // Block if duplicate name+price exists
               })()}
             >
               Add Variation

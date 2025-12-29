@@ -157,8 +157,8 @@ export function BottleDepositRefundDialog({ sales, onClose, onRefunded }: Bottle
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-6xl mx-4 animate-scale-in max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-6xl animate-scale-in max-h-[95vh] flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-info/20 rounded-lg">

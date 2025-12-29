@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { X, Package, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PRODUCT_CATEGORIES, ProductCategory } from "@/types/product";
-import { getAllCategories, addCustomCategory } from "@/utils/categories";
+import { getAllCategories, getAllCategoriesAsync } from "@/utils/categories";
+import { categoriesApi } from "@/services/mysqlApi";
 
 interface AddProductDialogProps {
   productName: string;
@@ -17,17 +17,36 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
   const [category, setCategory] = useState<string>("Other");
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategory, setNewCategory] = useState("");
+  const [allCategories, setAllCategories] = useState<string[]>(getAllCategories());
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Load categories from database on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      const categories = await getAllCategoriesAsync();
+      setAllCategories(categories);
+      // Set default category if available
+      if (categories.length > 0 && !categories.includes(category)) {
+        setCategory(categories[0] || "Other");
+      }
+    };
+    loadCategories();
+  }, []);
 
   useEffect(() => {
     setName(productName);
     setPrice("");
     setStockQuantity("");
-    setCategory("Other");
+    // Set category to first available or "Other"
+    if (allCategories.length > 0) {
+      setCategory(allCategories[0]);
+    } else {
+      setCategory("Other");
+    }
     setShowNewCategory(false);
     setNewCategory("");
     requestAnimationFrame(() => nameInputRef.current?.focus());
-  }, [productName]);
+  }, [productName, allCategories]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,9 +67,9 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
       <div
-        className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in"
+        className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col"
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between mb-6">
@@ -96,7 +115,64 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                   placeholder="Enter new category"
                   className="flex-1 px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newCategory.trim()) {
+                      const newCat = newCategory.trim();
+                      // Create category in database
+                      categoriesApi.create({
+                        name: newCat,
+                        parent_id: null,
+                        is_parent: false,
+                        display_order: 999,
+                      }).then(async () => {
+                        const updatedCategories = await getAllCategoriesAsync();
+                        setAllCategories(updatedCategories);
+                        setCategory(newCat);
+                        setShowNewCategory(false);
+                        setNewCategory("");
+                      }).catch((error) => {
+                        console.error("Error creating category:", error);
+                        // Still update UI even if API call fails
+                        setCategory(newCat);
+                        setShowNewCategory(false);
+                        setNewCategory("");
+                      });
+                    } else if (e.key === "Escape") {
+                      setShowNewCategory(false);
+                      setNewCategory("");
+                    }
+                  }}
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (newCategory.trim()) {
+                      const newCat = newCategory.trim();
+                      // Create category in database
+                      categoriesApi.create({
+                        name: newCat,
+                        parent_id: null,
+                        is_parent: false,
+                        display_order: 999,
+                      }).then(async () => {
+                        const updatedCategories = await getAllCategoriesAsync();
+                        setAllCategories(updatedCategories);
+                        setCategory(newCat);
+                        setShowNewCategory(false);
+                        setNewCategory("");
+                      }).catch((error) => {
+                        console.error("Error creating category:", error);
+                        // Still update UI even if API call fails
+                        setCategory(newCat);
+                        setShowNewCategory(false);
+                        setNewCategory("");
+                      });
+                    }
+                  }}
+                >
+                  Add
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -115,7 +191,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                   onChange={(e) => setCategory(e.target.value)}
                   className="flex-1 px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
-                  {PRODUCT_CATEGORIES.map((cat) => (
+                  {allCategories.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>

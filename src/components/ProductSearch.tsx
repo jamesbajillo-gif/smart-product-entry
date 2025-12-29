@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Product, PRODUCT_CATEGORIES } from "@/types/product";
+import { Product } from "@/types/product";
 import { Search, Plus, Tag, AlertTriangle, Package } from "lucide-react";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
+import { getAllCategories, getAllCategoriesAsync } from "@/utils/categories";
 
 interface ProductSearchProps {
   products: Product[];
@@ -11,6 +12,7 @@ interface ProductSearchProps {
   onAddNewProduct: (name: string) => void;
   onCheckout: () => void;
   searchInputRef?: React.RefObject<HTMLInputElement>;
+  hasCartItems?: boolean; // Whether there are items in the cart
 }
 
 const getStockStatus = (product: Product) => {
@@ -31,12 +33,23 @@ export function ProductSearch({
   onAddNewProduct,
   onCheckout,
   searchInputRef,
+  hasCartItems = false,
 }: ProductSearchProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [categoryOrder, setCategoryOrder] = useState<string[]>(getAllCategories());
   const internalInputRef = useRef<HTMLInputElement>(null);
   const inputRef = searchInputRef || internalInputRef;
   const listRef = useRef<HTMLDivElement>(null);
   const { funds: gcashFunds } = useGCashFunds();
+
+  // Load categories from database on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      const categories = await getAllCategoriesAsync();
+      setCategoryOrder(categories);
+    };
+    loadCategories();
+  }, []);
 
   const filteredProducts = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
@@ -104,9 +117,11 @@ export function ProductSearch({
       groups[category].push(product);
     });
 
-    // Sort categories according to PRODUCT_CATEGORIES order
+    // Sort categories according to database category order
     const sortedGroups: { category: string; products: Product[] }[] = [];
-    PRODUCT_CATEGORIES.forEach((cat) => {
+    
+    // First, add categories in the order they appear in categoryOrder
+    categoryOrder.forEach((cat) => {
       if (groups[cat]) {
         // Sort products by name, then by price (to group same names together)
         const sorted = groups[cat].sort((a, b) => {
@@ -117,9 +132,21 @@ export function ProductSearch({
         sortedGroups.push({ category: cat, products: sorted });
       }
     });
+    
+    // Then, add any remaining categories that aren't in the order list (alphabetically)
+    Object.keys(groups).forEach((cat) => {
+      if (!categoryOrder.includes(cat)) {
+        const sorted = groups[cat].sort((a, b) => {
+          const nameCompare = a.name.localeCompare(b.name);
+          if (nameCompare !== 0) return nameCompare;
+          return a.price - b.price;
+        });
+        sortedGroups.push({ category: cat, products: sorted });
+      }
+    });
 
     return sortedGroups;
-  }, [filteredProducts]);
+  }, [filteredProducts, categoryOrder]);
 
   // Flatten for keyboard navigation - includes base products and variations
   const flatProducts = useMemo(() => {
@@ -215,13 +242,33 @@ export function ProductSearch({
         case "Enter":
           e.preventDefault();
           e.stopPropagation(); // Prevent event from bubbling to global handler
-          if (!searchQuery) {
-            onCheckout();
-          } else if (showAddNew && selectedIndex === flatProducts.length) {
+          
+          // Priority 1: If "Add New" is selected, add new product
+          if (showAddNew && selectedIndex === flatProducts.length) {
             onAddNewProduct(searchQuery);
-          } else if (flatProducts[selectedIndex]) {
-            onProductSelect(flatProducts[selectedIndex]);
+            return;
           }
+          
+          // Priority 2: If a product is selected in search results, select it
+          if (flatProducts[selectedIndex]) {
+            onProductSelect(flatProducts[selectedIndex]);
+            return;
+          }
+          
+          // Priority 3: If no search query or no products, and cart has items, trigger checkout
+          // This handles the case where user presses Enter with empty search but has items in cart
+          if ((!searchQuery || flatProducts.length === 0) && hasCartItems) {
+            onCheckout();
+            return;
+          }
+          
+          // Priority 4: If no search query and no cart items, do nothing (don't trigger checkout)
+          // This prevents accidental checkout when user just presses Enter
+          if (!searchQuery && !hasCartItems) {
+            return;
+          }
+          
+          // Fallback: If we have a search query but no valid selection, do nothing
           break;
         case "Escape":
           e.preventDefault();
@@ -229,7 +276,7 @@ export function ProductSearch({
           break;
       }
     },
-    [flatProducts, selectedIndex, showAddNew, searchQuery, onProductSelect, onAddNewProduct, onSearchChange, onCheckout]
+    [flatProducts, selectedIndex, showAddNew, searchQuery, onProductSelect, onAddNewProduct, onSearchChange, onCheckout, hasCartItems]
   );
 
   // Scroll selected item into view

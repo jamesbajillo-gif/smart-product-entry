@@ -4,14 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 interface AddGCashFundsDialogProps {
-  currentBalance: number;
-  onConfirm: (amount: number, notes?: string) => void;
+  currentCreditsBalance: number;
+  currentCashBalance: number;
+  onConfirm: (amount: number, fundType: "credits" | "cash", notes?: string) => void;
   onCancel: () => void;
 }
 
-export function AddGCashFundsDialog({ currentBalance, onConfirm, onCancel }: AddGCashFundsDialogProps) {
+export function AddGCashFundsDialog({ currentCreditsBalance, currentCashBalance, onConfirm, onCancel }: AddGCashFundsDialogProps) {
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
+  const [fundType, setFundType] = useState<"credits" | "cash">("credits");
   const amountRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export function AddGCashFundsDialog({ currentBalance, onConfirm, onCancel }: Add
 
   const handleConfirm = () => {
     if (isValid) {
-      onConfirm(numericAmount, notes.trim() || undefined);
+      onConfirm(numericAmount, fundType, notes.trim() || undefined);
     }
   };
 
@@ -52,21 +54,55 @@ export function AddGCashFundsDialog({ currentBalance, onConfirm, onCancel }: Add
   const quickAmounts = [100, 500, 1000, 2000, 5000, 10000];
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-4">
-      <div className="glass-panel rounded-xl p-6 w-[95vw] max-w-xl mx-4 animate-scale-in">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
+      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/20 rounded-lg">
               <Plus className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-foreground">Add Funds to GCASH</h2>
-              <p className="text-sm text-muted-foreground">Current balance: ₱{currentBalance.toFixed(2)}</p>
+              <h2 className="text-lg font-bold text-foreground">Add Funds to GCash</h2>
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                <p>Credits: ₱{currentCreditsBalance.toFixed(2)}</p>
+                <p>Cash: ₱{currentCashBalance.toFixed(2)}</p>
+              </div>
             </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onCancel}>
             <X className="w-5 h-5" />
           </Button>
+        </div>
+
+        {/* Fund Type Selection */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-muted-foreground mb-2">
+            Add to
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setFundType("credits")}
+              className={`px-4 py-3 rounded-lg border-2 transition-all ${
+                fundType === "credits"
+                  ? "bg-primary/20 border-primary text-primary font-medium"
+                  : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              <div className="text-sm font-medium">GCash Credits</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Wallet balance</div>
+            </button>
+            <button
+              onClick={() => setFundType("cash")}
+              className={`px-4 py-3 rounded-lg border-2 transition-all ${
+                fundType === "cash"
+                  ? "bg-warning/20 border-warning text-warning font-medium"
+                  : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              <div className="text-sm font-medium">GCash Cash</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Transaction cash</div>
+            </button>
+          </div>
         </div>
 
         {/* Amount Input */}
@@ -126,12 +162,32 @@ export function AddGCashFundsDialog({ currentBalance, onConfirm, onCancel }: Add
 
         {/* New Balance Preview */}
         {isValid && (
-          <div className="mb-6 p-3 bg-primary/10 rounded-lg border border-primary/20">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">New Balance:</span>
-              <span className="text-lg font-bold text-primary font-mono">
-                ₱{(currentBalance + numericAmount).toFixed(2)}
-              </span>
+          <div className="mb-6 space-y-2">
+            <div className={`p-3 rounded-lg border ${
+              fundType === "credits" 
+                ? "bg-primary/10 border-primary/20" 
+                : "bg-warning/10 border-warning/20"
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">
+                  New {fundType === "credits" ? "Credits" : "Cash"} Balance:
+                </span>
+                <span className={`text-lg font-bold font-mono ${
+                  fundType === "credits" ? "text-primary" : "text-warning"
+                }`}>
+                  ₱{(
+                    fundType === "credits" 
+                      ? currentCreditsBalance + numericAmount 
+                      : currentCashBalance + numericAmount
+                  ).toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <div className="p-2 bg-secondary/30 rounded text-xs text-muted-foreground">
+              {fundType === "credits" 
+                ? "Credits: ₱" + (currentCreditsBalance + numericAmount).toFixed(2) + " | Cash: ₱" + currentCashBalance.toFixed(2)
+                : "Credits: ₱" + currentCreditsBalance.toFixed(2) + " | Cash: ₱" + (currentCashBalance + numericAmount).toFixed(2)
+              }
             </div>
           </div>
         )}

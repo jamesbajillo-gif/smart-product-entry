@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { stockApi, RestockInfo, productsApi, expensesApi } from "@/services/mysqlApi";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
-import { Product, PRODUCT_CATEGORIES, ProductCategory, ProductSupplier, ProductService } from "@/types/product";
-import { getAllCategories, addCustomCategory } from "@/utils/categories";
+import { Product, ProductCategory, ProductSupplier, ProductService } from "@/types/product";
+import { getAllCategories, getAllCategoriesAsync, getFlatCategoriesWithParents } from "@/utils/categories";
+import { categoriesApi } from "@/services/mysqlApi";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -22,6 +23,7 @@ import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
 import { AddProductVariationDialog } from "@/components/AddProductVariationDialog";
 import { EditVariationDialog } from "@/components/EditVariationDialog";
 import { HistoryDialog } from "@/components/HistoryDialog";
+import { CategoryManagementDialog } from "@/components/CategoryManagementDialog";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
 import { useAvailableFunds } from "@/hooks/useAvailableFunds";
@@ -98,6 +100,7 @@ export default function ProductManagement() {
   const [newSkipStockTracking, setNewSkipStockTracking] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState<ProductCategory>("Beverages");
+  const [showCategoryManagement, setShowCategoryManagement] = useState(false);
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -114,9 +117,18 @@ export default function ProductManagement() {
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const { toast } = useToast();
-  const { funds: gcashFunds, addFunds } = useGCashFunds();
+  const { credits: gcashCredits, cash: gcashCash, addFunds } = useGCashFunds();
   
-  // Update categories list when component mounts or when new category is added
+  // Load categories from database on mount and when Category Management dialog closes
+  useEffect(() => {
+    const loadCategories = async () => {
+      const categories = await getAllCategoriesAsync();
+      setAllCategories(categories);
+    };
+    loadCategories();
+  }, [showCategoryManagement]);
+
+  // Update categories list when new category is added (for immediate UI update)
   useEffect(() => {
     setAllCategories(getAllCategories());
   }, [showNewCategory, showEditNewCategory]);
@@ -204,11 +216,28 @@ export default function ProductManagement() {
       }
     }
 
-    // Save custom category if it's not in the default list
+    // Save custom category to database if it doesn't exist
     const categoryToSave = newCategory.trim() || "Other";
-    if (categoryToSave && !PRODUCT_CATEGORIES.includes(categoryToSave as ProductCategory)) {
-      addCustomCategory(categoryToSave);
-      setAllCategories(getAllCategories());
+    if (categoryToSave) {
+      try {
+        // Check if category exists in database
+        const allCats = await getAllCategoriesAsync();
+        if (!allCats.includes(categoryToSave)) {
+          // Create new category in database
+          await categoriesApi.create({
+            name: categoryToSave,
+            parent_id: null,
+            is_parent: false,
+            display_order: 999,
+          });
+          // Refresh categories list
+          const updatedCategories = await getAllCategoriesAsync();
+          setAllCategories(updatedCategories);
+        }
+      } catch (error) {
+        console.error("Error creating category:", error);
+        // Continue with product creation even if category creation fails
+      }
     }
     
     // Build product data - include skip_stock_tracking flag
@@ -258,10 +287,24 @@ export default function ProductManagement() {
     setEditPrice(product.price.toString());
     const category = product.category || "Other";
     setEditCategory(category);
-    // If category is not in default list, it's a custom category - ensure it's saved
-    if (category && !PRODUCT_CATEGORIES.includes(category as ProductCategory)) {
-      addCustomCategory(category);
-      setAllCategories(getAllCategories());
+    // Ensure category exists in database (async check, but don't block)
+    if (category) {
+      getAllCategoriesAsync().then(async (allCats) => {
+        if (!allCats.includes(category)) {
+          try {
+            await categoriesApi.create({
+              name: category,
+              parent_id: null,
+              is_parent: false,
+              display_order: 999,
+            });
+            const updatedCategories = await getAllCategoriesAsync();
+            setAllCategories(updatedCategories);
+          } catch (error) {
+            console.error("Error ensuring category exists:", error);
+          }
+        }
+      });
     }
     setEditImageUrl(product.image_url || "");
     setEditStockQuantity((product.stock_quantity ?? 0).toString());
@@ -364,11 +407,25 @@ export default function ProductManagement() {
     const validSuppliers = editSuppliers.filter((s) => s.name.trim() !== "");
     const validServices = editServices.filter((s) => s.name.trim() !== "" && s.price > 0);
     
-    // Save custom category if it's not in the default list
+    // Ensure category exists in database
     const categoryToSave = typeof editCategory === 'string' ? editCategory.trim() : editCategory;
-    if (categoryToSave && !PRODUCT_CATEGORIES.includes(categoryToSave as ProductCategory)) {
-      addCustomCategory(categoryToSave);
-      setAllCategories(getAllCategories());
+    if (categoryToSave) {
+      try {
+        const allCats = await getAllCategoriesAsync();
+        if (!allCats.includes(categoryToSave)) {
+          await categoriesApi.create({
+            name: categoryToSave,
+            parent_id: null,
+            is_parent: false,
+            display_order: 999,
+          });
+          const updatedCategories = await getAllCategoriesAsync();
+          setAllCategories(updatedCategories);
+        }
+      } catch (error) {
+        console.error("Error ensuring category exists:", error);
+        // Continue with product update even if category creation fails
+      }
     }
 
     const result = await updateProduct(editingId, {
@@ -929,6 +986,14 @@ export default function ProductManagement() {
                 <ArrowLeft className="w-5 h-5" />
               </Button>
             </Link>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              title="Category Management"
+              onClick={() => setShowCategoryManagement(true)}
+            >
+              <Tag className="w-5 h-5" />
+            </Button>
             <Link to="/settings">
               <Button variant="ghost" size="icon" title="Settings">
                 <Settings className="w-5 h-5" />
@@ -1003,7 +1068,7 @@ export default function ProductManagement() {
                 className="pl-10 pr-8 py-2 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none cursor-pointer"
               >
                 <option value="All">All Categories</option>
-                {PRODUCT_CATEGORIES.map((cat) => (
+                {allCategories.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
                   </option>
@@ -1067,10 +1132,23 @@ export default function ProductManagement() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && newCategory.trim()) {
                         const newCat = newCategory.trim();
-                        addCustomCategory(newCat);
-                        setNewCategory(newCat);
-                        setShowNewCategory(false);
-                        setAllCategories(getAllCategories());
+                        // Create category in database
+                        categoriesApi.create({
+                          name: newCat,
+                          parent_id: null,
+                          is_parent: false,
+                          display_order: 999,
+                        }).then(async () => {
+                          const updatedCategories = await getAllCategoriesAsync();
+                          setAllCategories(updatedCategories);
+                          setNewCategory(newCat);
+                          setShowNewCategory(false);
+                        }).catch((error) => {
+                          console.error("Error creating category:", error);
+                          // Still update UI even if API call fails
+                          setNewCategory(newCat);
+                          setShowNewCategory(false);
+                        });
                       } else if (e.key === "Escape") {
                         setShowNewCategory(false);
                         setNewCategory("Other");
@@ -1081,13 +1159,26 @@ export default function ProductManagement() {
                     type="button"
                     variant="outline"
                     onClick={() => {
-                      if (newCategory.trim()) {
-                        const newCat = newCategory.trim();
-                        addCustomCategory(newCat);
+                    if (newCategory.trim()) {
+                      const newCat = newCategory.trim();
+                      // Create category in database
+                      categoriesApi.create({
+                        name: newCat,
+                        parent_id: null,
+                        is_parent: false,
+                        display_order: 999,
+                      }).then(async () => {
+                        const updatedCategories = await getAllCategoriesAsync();
+                        setAllCategories(updatedCategories);
                         setNewCategory(newCat);
                         setShowNewCategory(false);
-                        setAllCategories(getAllCategories());
-                      }
+                      }).catch((error) => {
+                        console.error("Error creating category:", error);
+                        // Still update UI even if API call fails
+                        setNewCategory(newCat);
+                        setShowNewCategory(false);
+                      });
+                    }
                     }}
                     className="gap-2"
                   >
@@ -1297,11 +1388,25 @@ export default function ProductManagement() {
                                           onKeyDown={(e) => {
                                             if (e.key === "Enter" && editNewCategory.trim()) {
                                               const newCat = editNewCategory.trim();
-                                              addCustomCategory(newCat);
-                                              setEditCategory(newCat);
-                                              setShowEditNewCategory(false);
-                                              setEditNewCategory("");
-                                              setAllCategories(getAllCategories());
+                                              // Create category in database
+                                              categoriesApi.create({
+                                                name: newCat,
+                                                parent_id: null,
+                                                is_parent: false,
+                                                display_order: 999,
+                                              }).then(async () => {
+                                                const updatedCategories = await getAllCategoriesAsync();
+                                                setAllCategories(updatedCategories);
+                                                setEditCategory(newCat);
+                                                setShowEditNewCategory(false);
+                                                setEditNewCategory("");
+                                              }).catch((error) => {
+                                                console.error("Error creating category:", error);
+                                                // Still update UI even if API call fails
+                                                setEditCategory(newCat);
+                                                setShowEditNewCategory(false);
+                                                setEditNewCategory("");
+                                              });
                                             } else if (e.key === "Escape") {
                                               setShowEditNewCategory(false);
                                               setEditNewCategory("");
@@ -1315,11 +1420,25 @@ export default function ProductManagement() {
                                           onClick={() => {
                                             if (editNewCategory.trim()) {
                                               const newCat = editNewCategory.trim();
-                                              addCustomCategory(newCat);
-                                              setEditCategory(newCat);
-                                              setShowEditNewCategory(false);
-                                              setEditNewCategory("");
-                                              setAllCategories(getAllCategories());
+                                              // Create category in database
+                                              categoriesApi.create({
+                                                name: newCat,
+                                                parent_id: null,
+                                                is_parent: false,
+                                                display_order: 999,
+                                              }).then(async () => {
+                                                const updatedCategories = await getAllCategoriesAsync();
+                                                setAllCategories(updatedCategories);
+                                                setEditCategory(newCat);
+                                                setShowEditNewCategory(false);
+                                                setEditNewCategory("");
+                                              }).catch((error) => {
+                                                console.error("Error creating category:", error);
+                                                // Still update UI even if API call fails
+                                                setEditCategory(newCat);
+                                                setShowEditNewCategory(false);
+                                                setEditNewCategory("");
+                                              });
                                             }
                                           }}
                                           className="h-8 px-2 text-xs"
@@ -2008,14 +2127,15 @@ export default function ProductManagement() {
       {/* Add GCash Funds Dialog */}
       {showAddGcashFunds && (
         <AddGCashFundsDialog
-          currentBalance={gcashFunds}
-          onConfirm={(amount, notes) => {
-            const result = addFunds(amount, notes);
+          currentCreditsBalance={gcashCredits}
+          currentCashBalance={gcashCash}
+          onConfirm={(amount, fundType, notes) => {
+            const result = addFunds(amount, fundType, notes);
             if (result.success) {
               setShowAddGcashFunds(false);
               toast({
                 title: "Funds Added",
-                description: `₱${amount.toFixed(2)} added to GCASH | New balance: ₱${result.balance.toFixed(2)}`,
+                description: `₱${amount.toFixed(2)} added to GCash ${fundType === "credits" ? "Credits" : "Cash"} | New Credits: ₱${result.creditsBalance.toFixed(2)} | Cash: ₱${result.cashBalance.toFixed(2)}`,
               });
             }
           }}
@@ -2042,6 +2162,28 @@ export default function ProductManagement() {
                   existingVariations = [];
                 }
               }
+            }
+            
+            // Filter valid variations for duplicate checking
+            const validVariations = existingVariations.filter((v: any) => v && typeof v.price === 'number' && v.price > 0);
+            
+            // Check for duplicate: same name AND same price
+            const finalName = variationName.trim();
+            const duplicateExists = validVariations.some((v: any) => {
+              const vName = v.name ? v.name.trim() : '';
+              const vPrice = typeof v.price === 'number' ? v.price : 0;
+              // Compare names (case-insensitive) and prices (exact match with tolerance)
+              return vName.toLowerCase() === finalName.toLowerCase() && 
+                     Math.abs(vPrice - price) < 0.01; // Allow for floating point precision
+            });
+            
+            if (duplicateExists) {
+              toast({
+                title: "Duplicate Variation",
+                description: "A variation with this name and price already exists. Use a different name or price.",
+                variant: "destructive",
+              });
+              return;
             }
             
             // Create new variation
@@ -2101,13 +2243,38 @@ export default function ProductManagement() {
                 return [];
               })();
 
+              // Filter valid variations for duplicate checking
+              const validVariations = existingVariations.filter((v: any) => v && typeof v.price === 'number' && v.price > 0);
+              
+              // Determine final name
+              const finalName = newName || `${editingVariation.product.name} - ₱${newPrice.toFixed(2)}`;
+              
+              // Check for duplicate: same name AND same price (excluding current variation)
+              const duplicateExists = validVariations.some((v: any) => {
+                if (v.id === variationId) return false; // Exclude current variation
+                const vName = v.name ? v.name.trim() : '';
+                const vPrice = typeof v.price === 'number' ? v.price : 0;
+                // Compare names (case-insensitive) and prices (exact match with tolerance)
+                return vName.toLowerCase() === finalName.toLowerCase() && 
+                       Math.abs(vPrice - newPrice) < 0.01; // Allow for floating point precision
+              });
+              
+              if (duplicateExists) {
+                toast({
+                  title: "Duplicate Variation",
+                  description: "A variation with this name and price already exists. Use a different name or price.",
+                  variant: "destructive",
+                });
+                return;
+              }
+
               // Find and update the variation
               const updatedVariations = existingVariations.map((v: any) => {
                 if (v.id === variationId) {
                   return {
                     ...v,
                     price: newPrice,
-                    name: newName || `${editingVariation.product.name} - ₱${newPrice.toFixed(2)}`,
+                    name: finalName,
                     suppliers: suppliers || undefined,
                   };
                 }
@@ -2153,6 +2320,12 @@ export default function ProductManagement() {
           onClose={() => setHistoryProduct(null)}
         />
       )}
+
+      {/* Category Management Dialog */}
+      <CategoryManagementDialog
+        open={showCategoryManagement}
+        onOpenChange={setShowCategoryManagement}
+      />
 
     </div>
   );

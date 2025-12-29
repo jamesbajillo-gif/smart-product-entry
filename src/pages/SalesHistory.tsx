@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { salesApi, SaleRecord, expensesApi, ExpenseRecord } from "@/services/mysqlApi";
+import { useMySQLSync } from "@/hooks/useMySQLSync";
+import { getProductDisplayName } from "@/utils/productDisplay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { EditSaleDialog } from "@/components/EditSaleDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPermissions } from "@/hooks/useUserPermissions";
 import { 
@@ -31,7 +34,8 @@ import {
   Trash2,
   ArrowDownCircle,
   ArrowUpCircle,
-  DollarSign
+  DollarSign,
+  Pencil
 } from "lucide-react";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 
@@ -54,6 +58,7 @@ const formatMySQLDate = (date: Date): string => {
 
 export default function SalesHistory() {
   const { canDelete } = useUserPermissions();
+  const { products } = useMySQLSync();
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,6 +69,7 @@ export default function SalesHistory() {
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [saleToDelete, setSaleToDelete] = useState<SaleRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editingSale, setEditingSale] = useState<SaleRecord | null>(null);
   const [activeTab, setActiveTab] = useState<"sales" | "gcash" | "expenses">("sales");
   const { toast } = useToast();
   
@@ -674,17 +680,32 @@ export default function SalesHistory() {
                               </p>
                             </div>
                           </button>
-                          {canDelete && (
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={(e) => handleDeleteClick(e, sale)}
-                              disabled={isDeleting}
-                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedSale(sale);
+                                setEditingSale(sale);
+                              }}
+                              className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                              title="Edit sale"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Pencil className="w-4 h-4" />
                             </Button>
-                          )}
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => handleDeleteClick(e, sale)}
+                                disabled={isDeleting}
+                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -747,16 +768,19 @@ export default function SalesHistory() {
               <div className="border-t border-border pt-4 mb-4">
                 <p className="text-sm font-medium text-muted-foreground mb-2">Items</p>
                 <div className="space-y-2">
-                  {parseItems(selectedSale.items).map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-sm">
-                      <span className="text-foreground">
-                        {item.name} <span className="text-muted-foreground">×{item.quantity}</span>
-                      </span>
-                      <span className="font-mono text-foreground">
-                        ₱{(item.price * item.quantity).toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
+                  {parseItems(selectedSale.items).map((item, idx) => {
+                    const displayName = getProductDisplayName(item.productId, item.name, products);
+                    return (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span className="text-foreground">
+                          {displayName} <span className="text-muted-foreground">×{item.quantity}</span>
+                        </span>
+                        <span className="font-mono text-foreground">
+                          ₱{(item.price * item.quantity).toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -783,6 +807,17 @@ export default function SalesHistory() {
                     </div>
                   </>
                 )}
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-border">
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() => setEditingSale(selectedSale)}
+                >
+                  <Pencil className="w-4 h-4" />
+                  Edit Sale
+                </Button>
               </div>
             </div>
           )}
@@ -924,16 +959,19 @@ export default function SalesHistory() {
                   <div className="border-t border-border pt-4 mb-4">
                     <p className="text-sm font-medium text-muted-foreground mb-2">Items</p>
                     <div className="space-y-2">
-                      {parseItems(selectedSale.items).map((item, idx) => (
-                        <div key={idx} className="flex justify-between text-sm">
-                          <span className="text-foreground">
-                            {item.name} <span className="text-muted-foreground">×{item.quantity}</span>
-                          </span>
-                          <span className="font-mono text-foreground">
-                            ₱{(item.price * item.quantity).toFixed(2)}
-                          </span>
-                        </div>
-                      ))}
+                      {parseItems(selectedSale.items).map((item, idx) => {
+                        const displayName = getProductDisplayName(item.productId, item.name, products);
+                        return (
+                          <div key={idx} className="flex justify-between text-sm">
+                            <span className="text-foreground">
+                              {displayName} <span className="text-muted-foreground">×{item.quantity}</span>
+                            </span>
+                            <span className="font-mono text-foreground">
+                              ₱{(item.price * item.quantity).toFixed(2)}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                   <div className="border-t border-border pt-4 space-y-2">
@@ -943,6 +981,17 @@ export default function SalesHistory() {
                         ₱{Number(selectedSale.total).toFixed(2)}
                       </span>
                     </div>
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => setEditingSale(selectedSale)}
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Edit Sale
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1107,6 +1156,27 @@ export default function SalesHistory() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Sale Dialog */}
+      {editingSale && (
+        <EditSaleDialog
+          sale={editingSale}
+          products={products}
+          onConfirm={() => {
+            setEditingSale(null);
+            loadSales();
+            if (selectedSale?.id === editingSale.id) {
+              // Refresh selected sale
+              salesApi.getById(editingSale.id!).then((result) => {
+                if (result.success && result.data && result.data.length > 0) {
+                  setSelectedSale(result.data[0]);
+                }
+              });
+            }
+          }}
+          onCancel={() => setEditingSale(null)}
+        />
+      )}
     </div>
   );
 }

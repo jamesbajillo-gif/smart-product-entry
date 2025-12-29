@@ -1,5 +1,7 @@
 // MySQL API Service - works with the General-Purpose MySQL CRUD API
 
+import { getCurrentOperator } from "@/utils/operator";
+
 // Format date to MySQL compatible format (YYYY-MM-DD HH:MM:SS)
 const formatMySQLDateTime = (date: Date): string => {
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -97,9 +99,30 @@ export async function apiRequest<T>(
 
   try {
     const response = await fetch(url, fetchOptions);
-    const result = await response.json();
+    
+    // Check if response is ok before parsing
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${response.statusText}`,
+      };
+    }
+    
+    // Try to parse JSON, handle parse errors
+    let result;
+    try {
+      result = await response.json();
+    } catch (parseError) {
+      console.error("Failed to parse API response:", parseError);
+      return {
+        success: false,
+        error: "Invalid response from server",
+      };
+    }
+    
     return result;
   } catch (error) {
+    // Catch network errors and other fetch failures
     console.error("API Error:", error);
     return {
       success: false,
@@ -139,15 +162,32 @@ export const productsApi = {
     skip_stock_tracking?: boolean;
     variations?: string; // JSON string of variations
   }) => {
+    const operatorName = getCurrentOperator();
     // Convert boolean to 1/0 for MySQL
     const data = {
       ...product,
       skip_stock_tracking: product.skip_stock_tracking ? 1 : 0,
+      created_by: operatorName,
+      updated_by: operatorName,
     };
     const result = await apiRequest<{ id: number }>("POST", {
       table: "products",
       data,
     });
+    
+    // Log transaction
+    if (result.success && result.id) {
+      await logTransaction(
+        "product",
+        "create",
+        "products",
+        result.id,
+        null,
+        data,
+        `Product created: ${product.name} - ₱${product.price.toFixed(2)}`
+      );
+    }
+    
     return result;
   },
 
@@ -163,9 +203,17 @@ export const productsApi = {
     suppliers?: string; // JSON string of suppliers
     services?: string; // JSON string of services
   }) => {
+    // Get product data before update for logging
+    const productResult = await productsApi.getAll();
+    const productBefore = productResult.success && productResult.data
+      ? productResult.data.find((p: any) => String(p.id) === id)
+      : null;
+    
+    const operatorName = getCurrentOperator();
     // Convert boolean to 1/0 for MySQL if provided
     const updateData = {
       ...data,
+      updated_by: operatorName,
       ...(data.skip_stock_tracking !== undefined && { 
         skip_stock_tracking: data.skip_stock_tracking ? 1 : 0 
       }),
@@ -175,14 +223,49 @@ export const productsApi = {
       id,
       data: updateData,
     });
+    
+    // Log transaction
+    if (result.success && productBefore) {
+      const productAfter = { ...productBefore, ...updateData };
+      await logTransaction(
+        "product",
+        "update",
+        "products",
+        Number(id),
+        productBefore,
+        productAfter,
+        `Product updated: ${productBefore.name || id}`
+      );
+    }
+    
     return result;
   },
 
   delete: async (id: string) => {
+    // Get product data before deletion for logging
+    const productResult = await productsApi.getAll();
+    const productData = productResult.success && productResult.data
+      ? productResult.data.find((p: any) => String(p.id) === id)
+      : null;
+    
     const result = await apiRequest("DELETE", {
       table: "products",
       id,
     });
+    
+    // Log transaction
+    if (result.success && productData) {
+      await logTransaction(
+        "product",
+        "delete",
+        "products",
+        Number(id),
+        productData,
+        null,
+        `Product deleted: ${(productData as any).name || id}`
+      );
+    }
+    
     return result;
   },
 
@@ -222,6 +305,8 @@ export interface SaleRecord {
   amount_tendered?: number;
   change_amount?: number;
   bottle_deposit_refunded?: number; // 0 = not refunded, 1 = refunded
+  operator_name?: string;
+  updated_by?: string;
   created_at?: string;
 }
 
@@ -259,15 +344,33 @@ export const salesApi = {
   },
 
   create: async (sale: Omit<SaleRecord, "id"> & { created_at?: string }) => {
-    const result = await apiRequest<{ id: number }>("POST", {
-      table: "sales",
-      data: {
+    const operatorName = getCurrentOperator();
+    const saleData = {
         ...sale,
+      operator_name: operatorName,
         created_at: sale.created_at 
           ? formatMySQLDateTime(new Date(sale.created_at))
           : formatMySQLDateTime(new Date()),
-      },
+    };
+    
+    const result = await apiRequest<{ id: number }>("POST", {
+      table: "sales",
+      data: saleData,
     });
+    
+    // Log transaction
+    if (result.success && result.id) {
+      await logTransaction(
+        "sale",
+        "create",
+        "sales",
+        result.id,
+        null,
+        saleData,
+        `Sale created: ₱${sale.total.toFixed(2)} via ${sale.payment_method}`
+      );
+    }
+    
     return result;
   },
 
@@ -279,11 +382,67 @@ export const salesApi = {
     return result;
   },
 
+  update: async (id: number, data: Partial<SaleRecord>) => {
+    // Get sale data before update for logging
+    const saleResult = await salesApi.getById(id);
+    const oldSaleData = saleResult.success && saleResult.data && saleResult.data.length > 0 
+      ? saleResult.data[0] 
+      : null;
+    
+    const operatorName = getCurrentOperator();
+    const updateData = {
+      ...data,
+      updated_by: operatorName,
+    };
+    
+    const result = await apiRequest("PUT", {
+      table: "sales",
+      id,
+      data: updateData,
+    });
+    
+    // Log transaction
+    if (result.success && oldSaleData) {
+      const newSaleData = { ...oldSaleData, ...updateData };
+      await logTransaction(
+        "sale",
+        "update",
+        "sales",
+        id,
+        oldSaleData,
+        newSaleData,
+        `Sale updated: ₱${newSaleData.total?.toFixed(2) || oldSaleData.total.toFixed(2)}`
+      );
+    }
+    
+    return result;
+  },
+
   delete: async (id: number) => {
+    // Get sale data before deletion for logging
+    const saleResult = await salesApi.getById(id);
+    const saleData = saleResult.success && saleResult.data && saleResult.data.length > 0 
+      ? saleResult.data[0] 
+      : null;
+    
     const result = await apiRequest("DELETE", {
       table: "sales",
       id,
     });
+    
+    // Log transaction
+    if (result.success && saleData) {
+      await logTransaction(
+        "sale",
+        "delete",
+        "sales",
+        id,
+        saleData,
+        null,
+        `Sale deleted: ₱${saleData.total.toFixed(2)}`
+      );
+    }
+    
     return result;
   },
 
@@ -307,6 +466,12 @@ export const salesApi = {
   },
 
   updateRefundStatus: async (id: number, refunded: boolean) => {
+    // Get sale data before update for logging
+    const saleResult = await salesApi.getById(id);
+    const saleDataBefore = saleResult.success && saleResult.data && saleResult.data.length > 0 
+      ? saleResult.data[0] 
+      : null;
+    
     const result = await apiRequest("PUT", {
       table: "sales",
       id,
@@ -314,6 +479,21 @@ export const salesApi = {
         bottle_deposit_refunded: refunded ? 1 : 0,
       },
     });
+    
+    // Log transaction
+    if (result.success && saleDataBefore) {
+      const saleDataAfter = { ...saleDataBefore, bottle_deposit_refunded: refunded ? 1 : 0 };
+      await logTransaction(
+        "sale",
+        "update",
+        "sales",
+        id,
+        saleDataBefore,
+        saleDataAfter,
+        `Bottle deposit refund status updated: ${refunded ? "refunded" : "not refunded"}`
+      );
+    }
+    
     return result;
   },
 };
@@ -335,6 +515,7 @@ export const quantityHistoryApi = {
   },
 
   upsert: async (productId: string, quantities: number[]) => {
+    try {
     // First try to get existing record
     const existing = await apiRequest<QuantityHistoryRecord[]>("GET", {
       table: "quantity_history",
@@ -357,6 +538,13 @@ export const quantityHistoryApi = {
           quantities: JSON.stringify(quantities),
         },
       });
+      }
+    } catch (error) {
+      console.error(`Failed to upsert quantity history for product ${productId}:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to upsert quantity history",
+      };
     }
   },
 };
@@ -478,6 +666,7 @@ export interface StockAdjustmentRecord {
   unit_cost?: number;
   total_cost?: number;
   notes?: string;
+  operator_name?: string;
   created_at?: string;
 }
 
@@ -520,9 +709,8 @@ export const stockApi = {
     const totalCost = restockInfo?.unitCost ? quantity * restockInfo.unitCost : null;
 
     // Record adjustment with restock info
-    const adjustmentResult = await apiRequest<{ id: number }>("POST", {
-      table: "stock_adjustments",
-      data: {
+    const operatorName = getCurrentOperator();
+    const adjustmentData = {
         product_id: productId,
         adjustment_type: type,
         quantity_change: quantityChange,
@@ -533,16 +721,36 @@ export const stockApi = {
         unit_cost: restockInfo?.unitCost || null,
         total_cost: totalCost,
         notes: restockInfo?.notes || null,
+      operator_name: operatorName,
         created_at: formatMySQLDateTime(new Date()),
-      },
+    };
+    
+    const adjustmentResult = await apiRequest<{ id: number }>("POST", {
+      table: "stock_adjustments",
+      data: adjustmentData,
     });
+    
+    // Log transaction
+    if (adjustmentResult.success && adjustmentResult.id) {
+      await logTransaction(
+        "stock_adjustment",
+        "create",
+        "stock_adjustments",
+        adjustmentResult.id,
+        null,
+        adjustmentData,
+        `Stock ${type}: ${quantityChange > 0 ? '+' : ''}${quantityChange} (${currentStock} → ${newStock})`
+      );
+    }
 
     return { success: true, newStock, adjustmentResult };
   },
 
   // Record sale (auto-called when sale is made)
   recordSale: async (productId: string, quantitySold: number, currentStock: number) => {
+    try {
     const newStock = Math.max(0, currentStock - quantitySold);
+      const operatorName = getCurrentOperator();
 
     // Update product stock
     const updateResult = await productsApi.update(productId, { stock_quantity: newStock });
@@ -550,21 +758,49 @@ export const stockApi = {
       return updateResult;
     }
 
-    // Record adjustment as sale
-    await apiRequest("POST", {
-      table: "stock_adjustments",
-      data: {
+      // Record adjustment as sale (non-blocking - don't fail if this fails)
+      try {
+        const adjustmentData = {
         product_id: productId,
         adjustment_type: 'sale',
         quantity_change: -quantitySold,
         previous_quantity: currentStock,
         new_quantity: newStock,
         reason: 'POS Sale',
+          operator_name: operatorName,
         created_at: formatMySQLDateTime(new Date()),
-      },
+        };
+        
+        const adjustmentResult = await apiRequest<{ id: number }>("POST", {
+          table: "stock_adjustments",
+          data: adjustmentData,
     });
+        
+        // Log transaction
+        if (adjustmentResult.success && adjustmentResult.id) {
+          await logTransaction(
+            "stock_adjustment",
+            "create",
+            "stock_adjustments",
+            adjustmentResult.id,
+            null,
+            adjustmentData,
+            `Stock sale: -${quantitySold} (${currentStock} → ${newStock})`
+          );
+        }
+      } catch (error) {
+        // Log but don't fail the entire operation if stock adjustment recording fails
+        console.error(`Failed to record stock adjustment for product ${productId}:`, error);
+      }
 
     return { success: true, newStock };
+    } catch (error) {
+      console.error(`Failed to record sale for product ${productId}:`, error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Failed to record sale" 
+      };
+    }
   },
 
   // Get adjustment history for a product
@@ -612,19 +848,38 @@ export interface ExpenseRecord {
   notes?: string;
   category?: string; // Category/classification for expenses (e.g., "restock", "operational", etc.)
   payment_source?: string; // Payment source (cash, store_funds, gcash, current_sales)
+  operator_name?: string;
   created_at?: string;
 }
 
 export const expensesApi = {
   // Add expense record
   create: async (expense: Omit<ExpenseRecord, "id" | "created_at">) => {
+    const operatorName = getCurrentOperator();
+    const expenseData = {
+        ...expense,
+      operator_name: operatorName,
+        created_at: formatMySQLDateTime(new Date()),
+    };
+    
     const result = await apiRequest<{ id: number }>("POST", {
       table: "expenses",
-      data: {
-        ...expense,
-        created_at: formatMySQLDateTime(new Date()),
-      },
+      data: expenseData,
     });
+    
+    // Log transaction
+    if (result.success && result.id) {
+      await logTransaction(
+        "expense",
+        "create",
+        "expenses",
+        result.id,
+        null,
+        expenseData,
+        `Expense recorded: ${expense.product_name} - ₱${expense.total_cost.toFixed(2)}`
+      );
+    }
+    
     return result;
   },
 
@@ -739,12 +994,86 @@ export const expensesApi = {
 
   // Delete expense
   delete: async (id: number) => {
+    // Get expense data before deletion for logging
+    const expenseResult = await expensesApi.getByProduct("", 1000);
+    const expenseData = expenseResult.success && expenseResult.data
+      ? expenseResult.data.find(e => e.id === id)
+      : null;
+    
     const result = await apiRequest("DELETE", {
       table: "expenses",
       id,
     });
+    
+    // Log transaction
+    if (result.success && expenseData) {
+      await logTransaction(
+        "expense",
+        "delete",
+        "expenses",
+        id,
+        expenseData,
+        null,
+        `Expense deleted: ${expenseData.product_name} - ₱${expenseData.total_cost.toFixed(2)}`
+      );
+    }
+    
     return result;
   },
+};
+
+// Transaction Log API
+export interface TransactionLogRecord {
+  id?: number;
+  transaction_type: string;
+  transaction_id?: number;
+  table_name?: string;
+  operator_name: string;
+  action: "create" | "update" | "delete";
+  data_before?: string; // JSON string
+  data_after?: string; // JSON string
+  description?: string;
+  ip_address?: string;
+  user_agent?: string;
+  created_at?: string;
+}
+
+// Helper function to log transactions
+const logTransaction = async (
+  transactionType: string,
+  action: "create" | "update" | "delete",
+  tableName: string,
+  transactionId: number | null,
+  dataBefore: any = null,
+  dataAfter: any = null,
+  description?: string
+): Promise<void> => {
+  try {
+    const operatorName = getCurrentOperator();
+    
+    const logData: Omit<TransactionLogRecord, "id" | "created_at"> = {
+      transaction_type: transactionType,
+      transaction_id: transactionId || null,
+      table_name: tableName,
+      operator_name: operatorName,
+      action,
+      data_before: dataBefore ? JSON.stringify(dataBefore) : null,
+      data_after: dataAfter ? JSON.stringify(dataAfter) : null,
+      description: description || `${action} ${transactionType} in ${tableName}`,
+    };
+
+    // Log transaction asynchronously (don't block the main operation)
+    apiRequest("POST", {
+      table: "transaction_log",
+      data: logData,
+    }).catch((error) => {
+      // Silently fail - don't break the main operation if logging fails
+      console.error("Failed to log transaction:", error);
+    });
+  } catch (error) {
+    // Silently fail - don't break the main operation if logging fails
+    console.error("Error logging transaction:", error);
+  }
 };
 
 // Store Funds API
@@ -755,8 +1084,110 @@ export interface StoreFundTransaction {
   balance_after: number;
   notes?: string;
   category?: string;
+  operator_name?: string;
   created_at?: string;
 }
+
+// GCash Funds API
+export interface GCashFundTransaction {
+  id?: number;
+  transaction_type: "add-credits" | "add-cash" | "gcash-in" | "gcash-out";
+  amount: number;
+  service_charge?: number;
+  credits_balance_after: number;
+  cash_balance_after: number;
+  notes?: string;
+  gcash_number?: string;
+  operator_name?: string;
+  created_at?: string;
+}
+
+export const gcashFundsApi = {
+  // Get current balance (latest transaction)
+  getBalance: async () => {
+    const result = await apiRequest<GCashFundTransaction[]>("GET", {
+      table: "gcash_funds",
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit: 1,
+    });
+    
+    if (result.success && result.data && result.data.length > 0) {
+      const latest = result.data[0];
+      return { 
+        success: true, 
+        creditsBalance: Number(latest.credits_balance_after),
+        cashBalance: Number(latest.cash_balance_after),
+      };
+    }
+    return { success: true, creditsBalance: 0, cashBalance: 0 };
+  },
+
+  // Get transaction history
+  getHistory: async (limit = 100) => {
+    const result = await apiRequest<GCashFundTransaction[]>("GET", {
+      table: "gcash_funds",
+      order_by: "created_at",
+      order_dir: "DESC",
+      limit,
+    });
+    return result;
+  },
+
+  // Add transaction
+  addTransaction: async (
+    transactionType: "add-credits" | "add-cash" | "gcash-in" | "gcash-out",
+    amount: number,
+    creditsBalanceAfter: number,
+    cashBalanceAfter: number,
+    serviceCharge: number = 0,
+    notes?: string,
+    gcashNumber?: string
+  ) => {
+    const operatorName = getCurrentOperator();
+
+    const transaction: Omit<GCashFundTransaction, "id" | "created_at"> = {
+      transaction_type: transactionType,
+      amount,
+      service_charge: serviceCharge > 0 ? serviceCharge : undefined,
+      credits_balance_after: creditsBalanceAfter,
+      cash_balance_after: cashBalanceAfter,
+      notes,
+      gcash_number: gcashNumber,
+      operator_name: operatorName,
+    };
+
+    const result = await apiRequest<{ id: number }>("POST", {
+      table: "gcash_funds",
+      data: transaction,
+    });
+
+    if (result.success && result.id) {
+      const fullTransaction = { 
+        ...transaction, 
+        id: result.id, 
+        created_at: formatMySQLDateTime(new Date()) 
+      } as GCashFundTransaction;
+      
+      // Log transaction
+      await logTransaction(
+        "gcash_fund",
+        "create",
+        "gcash_funds",
+        result.id,
+        null,
+        fullTransaction,
+        `GCash transaction: ${transactionType} - ₱${amount.toFixed(2)} (Credits: ₱${creditsBalanceAfter.toFixed(2)}, Cash: ₱${cashBalanceAfter.toFixed(2)})`
+      );
+      
+      return {
+        success: true,
+        transaction: fullTransaction,
+      };
+    }
+    return { success: false, error: result.error || "Failed to add GCash transaction" };
+  },
+};
 
 export const storeFundsApi = {
   // Get current balance (sum of all transactions)
@@ -791,6 +1222,7 @@ export const storeFundsApi = {
     const balanceResult = await storeFundsApi.getBalance();
     const currentBalance = balanceResult.balance || 0;
     const newBalance = currentBalance + amount;
+    const operatorName = getCurrentOperator();
 
     const transaction: Omit<StoreFundTransaction, "id" | "created_at"> = {
       transaction_type: "add",
@@ -798,6 +1230,7 @@ export const storeFundsApi = {
       balance_after: newBalance,
       notes,
       category,
+      operator_name: operatorName,
     };
 
     const result = await apiRequest<{ id: number }>("POST", {
@@ -806,9 +1239,22 @@ export const storeFundsApi = {
     });
 
     if (result.success && result.id) {
+      const fullTransaction = { ...transaction, id: result.id, created_at: formatMySQLDateTime(new Date()) } as StoreFundTransaction;
+      
+      // Log transaction
+      await logTransaction(
+        "store_fund",
+        "create",
+        "store_funds",
+        result.id,
+        null,
+        fullTransaction,
+        `Store funds added: ₱${amount.toFixed(2)} (Balance: ₱${newBalance.toFixed(2)})`
+      );
+      
       return {
         success: true,
-        transaction: { ...transaction, id: result.id, created_at: formatMySQLDateTime(new Date()) } as StoreFundTransaction,
+        transaction: fullTransaction,
       };
     }
     return { success: false, error: result.error || "Failed to add funds" };
@@ -825,6 +1271,7 @@ export const storeFundsApi = {
     }
 
     const newBalance = currentBalance - amount;
+    const operatorName = getCurrentOperator();
 
     const transaction: Omit<StoreFundTransaction, "id" | "created_at"> = {
       transaction_type: "withdraw",
@@ -832,6 +1279,7 @@ export const storeFundsApi = {
       balance_after: newBalance,
       notes,
       category,
+      operator_name: operatorName,
     };
 
     const result = await apiRequest<{ id: number }>("POST", {
@@ -840,12 +1288,463 @@ export const storeFundsApi = {
     });
 
     if (result.success && result.id) {
+      const fullTransaction = { ...transaction, id: result.id, created_at: formatMySQLDateTime(new Date()) } as StoreFundTransaction;
+      
+      // Log transaction
+      await logTransaction(
+        "store_fund",
+        "create",
+        "store_funds",
+        result.id,
+        null,
+        fullTransaction,
+        `Store funds withdrawn: ₱${amount.toFixed(2)} (Balance: ₱${newBalance.toFixed(2)})`
+      );
+      
       return {
         success: true,
-        transaction: { ...transaction, id: result.id, created_at: formatMySQLDateTime(new Date()) } as StoreFundTransaction,
+        transaction: fullTransaction,
       };
     }
     return { success: false, error: result.error || "Failed to withdraw funds" };
+  },
+};
+
+// Transaction Log API
+export const transactionLogApi = {
+  getAll: async (filters: {
+    limit?: number;
+    offset?: number;
+    transactionType?: string;
+    operatorName?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  } = {}) => {
+    const { limit = 100, offset = 0, transactionType, operatorName, dateFrom, dateTo } = filters;
+    
+    const apiFilters: Record<string, string | number> = {};
+    if (transactionType) apiFilters["transaction_type"] = transactionType;
+    if (operatorName) apiFilters["operator_name"] = operatorName;
+    if (dateFrom) apiFilters["created_at__gte"] = dateFrom;
+    if (dateTo) apiFilters["created_at__lte"] = dateTo;
+    
+    const result = await apiRequest<TransactionLogRecord[]>("GET", {
+      table: "transaction_log",
+      limit,
+      offset,
+      order_by: "created_at",
+      order_dir: "DESC",
+      filters: apiFilters,
+    });
+    return result;
+  },
+  
+  getByOperator: async (operatorName: string, limit = 100) => {
+    return transactionLogApi.getAll({ operatorName, limit });
+  },
+  
+  getByType: async (transactionType: string, limit = 100) => {
+    return transactionLogApi.getAll({ transactionType, limit });
+  },
+};
+
+// Categories API
+export interface CategoryRecord {
+  id?: number;
+  name: string;
+  parent_id?: number | null;
+  is_parent?: number | boolean;
+  display_order?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CategoryWithChildren extends CategoryRecord {
+  children?: CategoryWithChildren[];
+  parent_name?: string;
+}
+
+export interface FeeRecord {
+  id?: number;
+  name: string;
+  fee_type: 'service_fee' | 'timpla_fee' | 'transaction_fee' | 'bottle_deposit' | 'other';
+  amount: number;
+  is_percentage?: number | boolean;
+  is_active?: number | boolean;
+  categories?: string[] | null; // Array of category names. null means applies to all categories
+  calculation_type?: 'per_item' | 'per_transaction'; // per_item = applies to each matching item, per_transaction = applies once per transaction
+  description?: string;
+  created_by?: string;
+  updated_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const categoriesApi = {
+  getAll: async () => {
+    const result = await apiRequest<CategoryRecord[]>("GET", {
+      table: "categories",
+      order_by: "display_order",
+      order_dir: "ASC",
+      limit: 1000,
+    });
+    return result;
+  },
+
+  getById: async (id: number) => {
+    const result = await apiRequest<CategoryRecord[]>("GET", {
+      table: "categories",
+      id,
+    });
+    return result;
+  },
+
+  create: async (category: Omit<CategoryRecord, "id" | "created_at" | "updated_at">) => {
+    const operatorName = getCurrentOperator();
+    const categoryData = {
+      ...category,
+      is_parent: category.is_parent ? 1 : 0,
+    };
+    
+    const result = await apiRequest<{ id: number }>("POST", {
+      table: "categories",
+      data: categoryData,
+    });
+    
+    // Log transaction
+    if (result.success && result.id) {
+      await logTransaction(
+        "category",
+        "create",
+        "categories",
+        result.id,
+        null,
+        categoryData,
+        `Category created: ${category.name}${category.parent_id ? ` (under parent ID: ${category.parent_id})` : ' (root category)'}`
+      );
+    }
+    
+    return result;
+  },
+
+  update: async (id: number, data: Partial<Omit<CategoryRecord, "id" | "created_at" | "updated_at">>) => {
+    // Get category data before update for logging
+    const categoryResult = await categoriesApi.getById(id);
+    const categoryBefore = categoryResult.success && categoryResult.data && categoryResult.data.length > 0
+      ? categoryResult.data[0]
+      : null;
+    
+    const updateData = {
+      ...data,
+      ...(data.is_parent !== undefined && { is_parent: data.is_parent ? 1 : 0 }),
+    };
+    
+    const result = await apiRequest("PUT", {
+      table: "categories",
+      id,
+      data: updateData,
+    });
+    
+    // Log transaction
+    if (result.success && categoryBefore) {
+      const categoryAfter = { ...categoryBefore, ...updateData };
+      await logTransaction(
+        "category",
+        "update",
+        "categories",
+        id,
+        categoryBefore,
+        categoryAfter,
+        `Category updated: ${categoryBefore.name}`
+      );
+    }
+    
+    return result;
+  },
+
+  delete: async (id: number) => {
+    // Get category data before deletion for logging
+    const categoryResult = await categoriesApi.getById(id);
+    const categoryData = categoryResult.success && categoryResult.data && categoryResult.data.length > 0
+      ? categoryResult.data[0]
+      : null;
+    
+    // Check if category has children
+    const allCategories = await categoriesApi.getAll();
+    if (allCategories.success && allCategories.data) {
+      const hasChildren = allCategories.data.some((c: CategoryRecord) => c.parent_id === id);
+      if (hasChildren) {
+        return {
+          success: false,
+          error: "Cannot delete category with child categories. Please move or delete children first.",
+        };
+      }
+    }
+    
+    const result = await apiRequest("DELETE", {
+      table: "categories",
+      id,
+    });
+    
+    // Log transaction
+    if (result.success && categoryData) {
+      await logTransaction(
+        "category",
+        "delete",
+        "categories",
+        id,
+        categoryData,
+        null,
+        `Category deleted: ${categoryData.name}`
+      );
+    }
+    
+    return result;
+  },
+
+  // Get categories in hierarchical structure
+  getHierarchical: async (): Promise<ApiResponse<CategoryWithChildren[]>> => {
+    const result = await categoriesApi.getAll();
+    if (!result.success || !result.data) {
+      return result as ApiResponse<CategoryWithChildren[]>;
+    }
+
+    const categories = result.data as CategoryRecord[];
+    
+    // Create a map for quick lookup
+    const categoryMap = new Map<number, CategoryWithChildren>();
+    const rootCategories: CategoryWithChildren[] = [];
+
+    // First pass: create all category objects
+    categories.forEach((cat) => {
+      categoryMap.set(cat.id!, {
+        ...cat,
+        is_parent: Boolean(cat.is_parent),
+        children: [],
+      });
+    });
+
+    // Second pass: build hierarchy
+    categories.forEach((cat) => {
+      const category = categoryMap.get(cat.id!)!;
+      if (cat.parent_id === null || cat.parent_id === undefined) {
+        rootCategories.push(category);
+      } else {
+        const parent = categoryMap.get(cat.parent_id);
+        if (parent) {
+          if (!parent.children) {
+            parent.children = [];
+          }
+          parent.children.push(category);
+        }
+      }
+    });
+
+    // Sort children within each parent
+    const sortCategories = (cats: CategoryWithChildren[]) => {
+      cats.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      cats.forEach((cat) => {
+        if (cat.children && cat.children.length > 0) {
+          sortCategories(cat.children);
+        }
+      });
+    };
+
+    sortCategories(rootCategories);
+
+    return {
+      success: true,
+      data: rootCategories,
+    };
+  },
+
+  // Get flat list with parent names
+  getFlatWithParents: async (): Promise<ApiResponse<CategoryWithChildren[]>> => {
+    const result = await categoriesApi.getAll();
+    if (!result.success || !result.data) {
+      return result as ApiResponse<CategoryWithChildren[]>;
+    }
+
+    const categories = result.data as CategoryRecord[];
+    const categoryMap = new Map<number, CategoryRecord>();
+    
+    // Build map for parent lookup
+    categories.forEach((cat) => {
+      categoryMap.set(cat.id!, cat);
+    });
+
+    // Add parent names
+    const categoriesWithParents = categories.map((cat) => {
+      const category: CategoryWithChildren = {
+        ...cat,
+        is_parent: Boolean(cat.is_parent),
+      };
+      if (cat.parent_id) {
+        const parent = categoryMap.get(cat.parent_id);
+        if (parent) {
+          category.parent_name = parent.name;
+        }
+      }
+      return category;
+    });
+
+    return {
+      success: true,
+      data: categoriesWithParents,
+    };
+  },
+};
+
+export const feesApi = {
+  getAll: async () => {
+    const result = await apiRequest<FeeRecord[]>("GET", {
+      table: "fees",
+      order_by: "fee_type",
+      order_dir: "ASC",
+      limit: 1000,
+    });
+    // Parse categories JSON if present
+    if (result.success && result.data) {
+      result.data = result.data.map((fee) => {
+        if (fee.categories && typeof fee.categories === 'string') {
+          try {
+            fee.categories = JSON.parse(fee.categories);
+          } catch {
+            fee.categories = null;
+          }
+        }
+        return fee;
+      });
+    }
+    return result;
+  },
+
+  getById: async (id: number) => {
+    const result = await apiRequest<FeeRecord[]>("GET", {
+      table: "fees",
+      id,
+    });
+    // Parse categories JSON if present
+    if (result.success && result.data && result.data.length > 0) {
+      const fee = result.data[0];
+      if (fee.categories && typeof fee.categories === 'string') {
+        try {
+          fee.categories = JSON.parse(fee.categories);
+        } catch {
+          fee.categories = null;
+        }
+      }
+    }
+    return result;
+  },
+
+  getByType: async (feeType: FeeRecord['fee_type']) => {
+    const result = await apiRequest<FeeRecord[]>("GET", {
+      table: "fees",
+      filters: { fee_type: feeType, is_active: 1 },
+      order_by: "created_at",
+      order_dir: "ASC",
+    });
+    return result;
+  },
+
+  create: async (fee: Omit<FeeRecord, "id" | "created_at" | "updated_at">) => {
+    const operatorName = getCurrentOperator();
+    const feeData = {
+      ...fee,
+      is_percentage: fee.is_percentage ? 1 : 0,
+      is_active: fee.is_active !== undefined ? (fee.is_active ? 1 : 0) : 1,
+      categories: fee.categories ? JSON.stringify(fee.categories) : null,
+      created_by: operatorName || null,
+      updated_by: operatorName || null,
+    };
+    
+    const result = await apiRequest<{ id: number }>("POST", {
+      table: "fees",
+      data: feeData,
+    });
+    
+    // Log transaction
+    if (result.success && result.id) {
+      await logTransaction(
+        "fee",
+        "create",
+        "fees",
+        result.id,
+        null,
+        feeData,
+        `Fee created: ${fee.name} (${fee.fee_type})`
+      );
+    }
+    
+    return result;
+  },
+
+  update: async (id: number, data: Partial<Omit<FeeRecord, "id" | "created_at" | "updated_at">>) => {
+    // Get fee data before update for logging
+    const feeResult = await feesApi.getById(id);
+    const feeBefore = feeResult.success && feeResult.data && feeResult.data.length > 0
+      ? feeResult.data[0]
+      : null;
+    
+    const operatorName = getCurrentOperator();
+    const updateData: any = {
+      ...data,
+      ...(data.is_percentage !== undefined && { is_percentage: data.is_percentage ? 1 : 0 }),
+      ...(data.is_active !== undefined && { is_active: data.is_active ? 1 : 0 }),
+      ...(data.categories !== undefined && { categories: data.categories ? JSON.stringify(data.categories) : null }),
+      updated_by: operatorName || null,
+    };
+    
+    const result = await apiRequest("PUT", {
+      table: "fees",
+      id,
+      data: updateData,
+    });
+    
+    // Log transaction
+    if (result.success && feeBefore) {
+      const feeAfter = { ...feeBefore, ...updateData };
+      await logTransaction(
+        "fee",
+        "update",
+        "fees",
+        id,
+        feeBefore,
+        feeAfter,
+        `Fee updated: ${feeBefore.name}`
+      );
+    }
+    
+    return result;
+  },
+
+  delete: async (id: number) => {
+    // Get fee data before deletion for logging
+    const feeResult = await feesApi.getById(id);
+    const feeData = feeResult.success && feeResult.data && feeResult.data.length > 0
+      ? feeResult.data[0]
+      : null;
+    
+    const result = await apiRequest("DELETE", {
+      table: "fees",
+      id,
+    });
+    
+    // Log transaction
+    if (result.success && feeData) {
+      await logTransaction(
+        "fee",
+        "delete",
+        "fees",
+        id,
+        feeData,
+        null,
+        `Fee deleted: ${feeData.name}`
+      );
+    }
+    
+    return result;
   },
 };
 
@@ -1017,6 +1916,134 @@ export const REQUIRED_SCHEMA = {
       category VARCHAR(100),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_transaction_type (transaction_type),
+      INDEX idx_created_at (created_at)
+    )`,
+  },
+  gcash_funds: {
+    tableName: "gcash_funds",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "transaction_type", type: "ENUM('add-credits', 'add-cash', 'gcash-in', 'gcash-out') NOT NULL" },
+      { name: "amount", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "service_charge", type: "DECIMAL(10,2) DEFAULT 0" },
+      { name: "credits_balance_after", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "cash_balance_after", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "notes", type: "TEXT" },
+      { name: "gcash_number", type: "VARCHAR(20)" },
+      { name: "operator_name", type: "VARCHAR(100)" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS gcash_funds (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transaction_type ENUM('add-credits', 'add-cash', 'gcash-in', 'gcash-out') NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      service_charge DECIMAL(10,2) DEFAULT 0,
+      credits_balance_after DECIMAL(10,2) NOT NULL,
+      cash_balance_after DECIMAL(10,2) NOT NULL,
+      notes TEXT,
+      gcash_number VARCHAR(20),
+      operator_name VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_transaction_type (transaction_type),
+      INDEX idx_created_at (created_at),
+      INDEX idx_operator_name (operator_name)
+    )`,
+  },
+  categories: {
+    tableName: "categories",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "name", type: "VARCHAR(100) NOT NULL" },
+      { name: "parent_id", type: "INT DEFAULT NULL" },
+      { name: "is_parent", type: "TINYINT(1) DEFAULT 0" },
+      { name: "display_order", type: "INT DEFAULT 0" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+      { name: "updated_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      parent_id INT DEFAULT NULL,
+      is_parent TINYINT(1) DEFAULT 0,
+      display_order INT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_parent_id (parent_id),
+      INDEX idx_is_parent (is_parent),
+      INDEX idx_display_order (display_order),
+      FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL,
+      UNIQUE KEY unique_name (name)
+    )`,
+  },
+  transaction_log: {
+    tableName: "transaction_log",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "transaction_type", type: "VARCHAR(50) NOT NULL" },
+      { name: "transaction_id", type: "INT DEFAULT NULL" },
+      { name: "table_name", type: "VARCHAR(100) DEFAULT NULL" },
+      { name: "operator_name", type: "VARCHAR(100) NOT NULL" },
+      { name: "action", type: "VARCHAR(50) NOT NULL" },
+      { name: "data_before", type: "JSON DEFAULT NULL" },
+      { name: "data_after", type: "JSON DEFAULT NULL" },
+      { name: "description", type: "TEXT" },
+      { name: "ip_address", type: "VARCHAR(45) DEFAULT NULL" },
+      { name: "user_agent", type: "TEXT DEFAULT NULL" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS transaction_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transaction_type VARCHAR(50) NOT NULL,
+      transaction_id INT DEFAULT NULL,
+      table_name VARCHAR(100) DEFAULT NULL,
+      operator_name VARCHAR(100) NOT NULL,
+      action VARCHAR(50) NOT NULL,
+      data_before JSON DEFAULT NULL,
+      data_after JSON DEFAULT NULL,
+      description TEXT,
+      ip_address VARCHAR(45) DEFAULT NULL,
+      user_agent TEXT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_transaction_type (transaction_type),
+      INDEX idx_operator_name (operator_name),
+      INDEX idx_created_at (created_at),
+      INDEX idx_transaction_id (transaction_id, transaction_type),
+      INDEX idx_table_name (table_name)
+    )`,
+  },
+  fees: {
+    tableName: "fees",
+    columns: [
+      { name: "id", type: "INT AUTO_INCREMENT PRIMARY KEY" },
+      { name: "name", type: "VARCHAR(100) NOT NULL" },
+      { name: "fee_type", type: "ENUM('service_fee', 'timpla_fee', 'transaction_fee', 'bottle_deposit', 'other') NOT NULL" },
+      { name: "amount", type: "DECIMAL(10,2) NOT NULL" },
+      { name: "is_percentage", type: "TINYINT(1) DEFAULT 0" },
+      { name: "is_active", type: "TINYINT(1) DEFAULT 1" },
+      { name: "categories", type: "JSON DEFAULT NULL" },
+      { name: "calculation_type", type: "ENUM('per_item', 'per_transaction') DEFAULT 'per_transaction'" },
+      { name: "description", type: "TEXT" },
+      { name: "created_by", type: "VARCHAR(100)" },
+      { name: "updated_by", type: "VARCHAR(100)" },
+      { name: "created_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+      { name: "updated_at", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
+    ],
+    createSQL: `CREATE TABLE IF NOT EXISTS fees (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      fee_type ENUM('service_fee', 'timpla_fee', 'transaction_fee', 'bottle_deposit', 'other') NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      is_percentage TINYINT(1) DEFAULT 0,
+      is_active TINYINT(1) DEFAULT 1,
+      categories JSON DEFAULT NULL,
+      calculation_type ENUM('per_item', 'per_transaction') DEFAULT 'per_transaction',
+      description TEXT,
+      created_by VARCHAR(100),
+      updated_by VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_fee_type (fee_type),
+      INDEX idx_is_active (is_active),
       INDEX idx_created_at (created_at)
     )`,
   },
