@@ -269,6 +269,25 @@ export const productsApi = {
     return result;
   },
 
+  getById: async (id: string) => {
+    const result = await apiRequest<Array<{
+      id: string;
+      name: string;
+      price: number;
+      category?: string;
+      image_url?: string;
+      stock_quantity?: number;
+      low_stock_threshold?: number;
+      skip_stock_tracking?: number | boolean;
+      variations?: string;
+      suppliers?: string;
+    }>>(
+      "GET",
+      { table: "products", id }
+    );
+    return result;
+  },
+
   getLowStock: async () => {
     // Get products where stock_quantity <= low_stock_threshold
     const result = await apiRequest<Array<{

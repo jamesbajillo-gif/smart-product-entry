@@ -15,7 +15,7 @@ interface ResetFinancialDataDialogProps {
 export function ResetFinancialDataDialog({ open, onClose, onComplete }: ResetFinancialDataDialogProps) {
   const [isResetting, setIsResetting] = useState(false);
   const [confirmText, setConfirmText] = useState("");
-  const { setFunds: setGcashFunds, setHistory: setGcashHistory } = useGCashFunds();
+  const { setCredits: setGcashCredits, setCash: setGcashCash, setHistory: setGcashHistory } = useGCashFunds();
   const { refresh: refreshStoreFunds } = useStoreFunds();
 
   const requiredText = "RESET ALL FINANCIAL DATA";
@@ -97,7 +97,8 @@ export function ResetFinancialDataDialog({ open, onClose, onComplete }: ResetFin
       }
       
       // Reset GCash funds and history (local state)
-      setGcashFunds(0);
+      setGcashCredits(0);
+      setGcashCash(0);
       setGcashHistory([]);
 
       // Reset Store Funds: All transactions are deleted above, now refresh to show 0 balance

@@ -2129,13 +2129,13 @@ export default function ProductManagement() {
         <AddGCashFundsDialog
           currentCreditsBalance={gcashCredits}
           currentCashBalance={gcashCash}
-          onConfirm={(amount, fundType, notes) => {
-            const result = addFunds(amount, fundType, notes);
+          onConfirm={async (amount, fundType, notes) => {
+            const result = await addFunds(amount, fundType, notes);
             if (result.success) {
               setShowAddGcashFunds(false);
               toast({
                 title: "Funds Added",
-                description: `₱${amount.toFixed(2)} added to GCash ${fundType === "credits" ? "Credits" : "Cash"} | New Credits: ₱${result.creditsBalance.toFixed(2)} | Cash: ₱${result.cashBalance.toFixed(2)}`,
+                description: `₱${amount.toFixed(2)} added to GCash ${fundType === "credits" ? "Credits" : "Cash"} | New Credits: ₱${result.creditsBalance?.toFixed(2) || '0.00'} | Cash: ₱${result.cashBalance?.toFixed(2) || '0.00'}`,
               });
             }
           }}

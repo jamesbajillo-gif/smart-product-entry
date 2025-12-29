@@ -843,52 +843,34 @@ const Index = () => {
         return;
       }
 
-      // If cart has items, typing letters should restore focus to search
-      // This allows user to search for more products even when cart is focused
-      if (orderItems.length > 0 && cartOpen && !showReceiptInCart) {
-        const activeEl = document.activeElement;
-        const isInputFocused = activeEl instanceof HTMLInputElement ||
-          activeEl instanceof HTMLTextAreaElement;
-        
-        // Typing letters: restore focus to search (even if cart is focused)
-        // This works when cart is focused or when no input is focused
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && 
-            !isInputFocused && !(activeEl instanceof HTMLButtonElement)) {
-          const searchInput = document.querySelector('input[type="text"][placeholder*="search"]') as HTMLInputElement;
-          if (searchInput) {
-            searchInput.focus();
-            // Don't prevent default - let the letter be typed into search
-            return;
-          }
-        }
-      }
-
-      // Skip if focused on input, textarea, select, or button
       const activeEl = document.activeElement;
-      if (activeEl instanceof HTMLInputElement ||
-          activeEl instanceof HTMLTextAreaElement ||
-          activeEl instanceof HTMLSelectElement ||
-          activeEl instanceof HTMLButtonElement) {
-        return;
-      }
+      const isInputFocused = activeEl instanceof HTMLInputElement ||
+          activeEl instanceof HTMLTextAreaElement;
+      const searchInput = document.querySelector('input[type="text"][placeholder*="search"]') as HTMLInputElement;
+      const isSearchFocused = searchInput && document.activeElement === searchInput;
 
-      // Enter key: Checkout when cart has items (cart should be focused by default)
-      // Note: ProductSearch handles Enter when search input is focused
-      if (e.key === 'Enter' && cartOpen && !showReceiptInCart && orderItems.length > 0) {
-        // Double-check that search input is not focused
-        const searchInput = document.querySelector('input[type="text"][placeholder*="search"]') as HTMLInputElement;
-        if (searchInput && document.activeElement === searchInput) {
-          return; // Let ProductSearch handle it
+      // ENTER KEY: Checkout when cart has items
+      // ProductSearch handles Enter for product selection, but if nothing is selected
+      // or search is empty, we handle checkout here
+      if (e.key === 'Enter' && orderItems.length > 0) {
+        // If search is focused with content, let ProductSearch handle it first
+        if (isSearchFocused && searchQuery.trim()) {
+          // ProductSearch will handle selection, but if no product is selected,
+          // the event will bubble up and we can handle checkout
+          return;
         }
-        e.preventDefault();
-        handleCheckout();
-        return;
+        
+        // Checkout if search is empty or not focused
+        if (!isSearchFocused || !searchQuery.trim()) {
+          e.preventDefault();
+          handleCheckout();
+          return;
+        }
       }
 
-      // Escape key: Close cart when cart is open and search input is not focused
+      // ESCAPE KEY: Close cart or clear search
       if (e.key === 'Escape' && cartOpen && !showReceiptInCart) {
-        const searchInput = document.querySelector('input[type="text"][placeholder*="search"]') as HTMLInputElement;
-        if (searchInput && document.activeElement === searchInput) {
+        if (isSearchFocused) {
           return; // Let ProductSearch handle it (clears search)
         }
         e.preventDefault();
@@ -899,13 +881,10 @@ const Index = () => {
         return;
       }
 
-      // Up/Down arrows: Adjust quantity for last added cart item
-      // Only when cart is open, search input is not focused, and we have a last modified product
+      // ARROW KEYS: Adjust quantity when not in search
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && cartOpen && !showReceiptInCart) {
-        // Double-check that search input is not focused
-        const searchInput = document.querySelector('input[type="text"][placeholder*="search"]') as HTMLInputElement;
-        if (searchInput && document.activeElement === searchInput) {
-          return; // Let ProductSearch handle it (navigates search results)
+        if (isSearchFocused) {
+          return; // Let ProductSearch handle it (navigates results)
         }
         
         const lastProductId = lastModifiedProductIdRef.current;
@@ -917,16 +896,25 @@ const Index = () => {
               ? lastItem.quantity + 1 
               : Math.max(1, lastItem.quantity - 1);
             handleUpdateQuantity(lastProductId, newQuantity);
-            // Update last modified ref to keep it current
-            lastModifiedProductIdRef.current = lastProductId;
           }
+        }
+        return;
+      }
+
+      // ALPHANUMERIC KEYS: Focus search input
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && 
+          !isInputFocused && !(activeEl instanceof HTMLButtonElement)) {
+        if (searchInput) {
+          searchInput.focus();
+          // Don't prevent default - let the letter be typed
+          return;
         }
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [cartOpen, showReceiptInCart, orderItems, handleCheckout, handleUpdateQuantity]);
+  }, [cartOpen, showReceiptInCart, orderItems, searchQuery, handleCheckout, handleUpdateQuantity]);
 
   // Generate transaction fingerprint (hash of items + total)
   const generateTransactionFingerprint = useCallback((items: OrderItem[], total: number): string => {
@@ -1486,9 +1474,7 @@ const Index = () => {
                 onSearchChange={setSearchQuery}
                 onProductSelect={handleProductSelect}
                 onAddNewProduct={handleAddNewProduct}
-                onCheckout={handleCheckout}
                 searchInputRef={searchInputRef}
-                hasCartItems={orderItems.length > 0}
               />
             </div>
 
