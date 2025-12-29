@@ -255,9 +255,9 @@ export function ProductSearch({
             return;
           }
           
-          // Priority 3: If no search query or no products, and cart has items, trigger checkout
-          // This handles the case where user presses Enter with empty search but has items in cart
-          if ((!searchQuery || flatProducts.length === 0) && hasCartItems) {
+          // Priority 3: If no item is selected (no valid selection), trigger checkout if cart has items
+          // This handles the case where user presses Enter with search results visible but nothing selected
+          if (hasCartItems) {
             onCheckout();
             return;
           }
@@ -268,7 +268,7 @@ export function ProductSearch({
             return;
           }
           
-          // Fallback: If we have a search query but no valid selection, do nothing
+          // Fallback: If we have a search query but no valid selection and no cart items, do nothing
           break;
         case "Escape":
           e.preventDefault();
