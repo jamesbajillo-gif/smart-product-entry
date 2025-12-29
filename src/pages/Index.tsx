@@ -848,29 +848,48 @@ const Index = () => {
           activeEl instanceof HTMLTextAreaElement;
       const searchInput = document.querySelector('input[type="text"][placeholder*="search"]') as HTMLInputElement;
       const isSearchFocused = searchInput && document.activeElement === searchInput;
+      
+      // Check if search results are ACTIVE (visible search results exist)
+      // Search results are active when: search input has content AND there are visible result buttons
+      const hasSearchResults = searchQuery.trim().length > 0 && 
+        document.querySelectorAll('[data-index]').length > 0;
 
-      // ENTER KEY: Checkout when cart has items
-      // ProductSearch handles Enter for product selection, but if nothing is selected
-      // or search is empty, we handle checkout here
-      if (e.key === 'Enter' && orderItems.length > 0) {
-        // If search is focused with content, let ProductSearch handle it first
-        if (isSearchFocused && searchQuery.trim()) {
-          // ProductSearch will handle selection, but if no product is selected,
-          // the event will bubble up and we can handle checkout
-          return;
-        }
-        
-        // Checkout if search is empty or not focused
-        if (!isSearchFocused || !searchQuery.trim()) {
+      // === SEARCH RESULTS ACTIVE ===
+      // When search results are showing, ProductSearch handles everything
+      if (hasSearchResults && isSearchFocused) {
+        // Let ProductSearch handle: ArrowUp/Down (navigate), Enter (select item)
+        return;
+      }
+
+      // === SEARCH RESULTS NOT ACTIVE + CART HAS ITEMS ===
+      if (orderItems.length > 0) {
+        // ENTER: Checkout
+        if (e.key === 'Enter') {
           e.preventDefault();
           handleCheckout();
           return;
         }
+
+        // UP/DOWN: Adjust quantity of last added item
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          const lastProductId = lastModifiedProductIdRef.current;
+          if (lastProductId) {
+            const lastItem = orderItems.find(item => item.product.id === lastProductId);
+            if (lastItem) {
+              e.preventDefault();
+              const newQuantity = e.key === 'ArrowUp' 
+                ? lastItem.quantity + 1 
+                : Math.max(1, lastItem.quantity - 1);
+              handleUpdateQuantity(lastProductId, newQuantity);
+              return;
+            }
+          }
+        }
       }
 
-      // ESCAPE KEY: Close cart or clear search
+      // ESCAPE: Close cart or clear search
       if (e.key === 'Escape' && cartOpen && !showReceiptInCart) {
-        if (isSearchFocused) {
+        if (isSearchFocused && searchQuery.trim()) {
           return; // Let ProductSearch handle it (clears search)
         }
         e.preventDefault();
@@ -881,32 +900,11 @@ const Index = () => {
         return;
       }
 
-      // ARROW KEYS: Adjust quantity when not in search
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && cartOpen && !showReceiptInCart) {
-        if (isSearchFocused) {
-          return; // Let ProductSearch handle it (navigates results)
-        }
-        
-        const lastProductId = lastModifiedProductIdRef.current;
-        if (lastProductId) {
-          const lastItem = orderItems.find(item => item.product.id === lastProductId);
-          if (lastItem) {
-            e.preventDefault();
-            const newQuantity = e.key === 'ArrowUp' 
-              ? lastItem.quantity + 1 
-              : Math.max(1, lastItem.quantity - 1);
-            handleUpdateQuantity(lastProductId, newQuantity);
-          }
-        }
-        return;
-      }
-
-      // ALPHANUMERIC KEYS: Focus search input
+      // ALPHANUMERIC: Focus search input
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && 
           !isInputFocused && !(activeEl instanceof HTMLButtonElement)) {
         if (searchInput) {
           searchInput.focus();
-          // Don't prevent default - let the letter be typed
           return;
         }
       }
