@@ -1,5 +1,8 @@
-import { feesApi, FeeRecord } from "@/services/mysqlApi";
+import { feesApi, FeeRecord as FeeRecordFromApi } from "@/services/mysqlApi";
 import { OrderItem } from "@/types/product";
+
+// Re-export FeeRecord type for use in other components
+export type FeeRecord = FeeRecordFromApi;
 
 // Cache for fees
 let feesCache: { data: FeeRecord[]; timestamp: number } | null = null;

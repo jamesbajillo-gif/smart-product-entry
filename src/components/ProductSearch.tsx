@@ -10,9 +10,7 @@ interface ProductSearchProps {
   onSearchChange: (query: string) => void;
   onProductSelect: (product: Product) => void;
   onAddNewProduct: (name: string) => void;
-  onCheckout: () => void;
   searchInputRef?: React.RefObject<HTMLInputElement>;
-  hasCartItems?: boolean; // Whether there are items in the cart
 }
 
 const getStockStatus = (product: Product) => {
@@ -31,9 +29,7 @@ export function ProductSearch({
   onSearchChange,
   onProductSelect,
   onAddNewProduct,
-  onCheckout,
   searchInputRef,
-  hasCartItems = false,
 }: ProductSearchProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [categoryOrder, setCategoryOrder] = useState<string[]>(getAllCategories());
@@ -255,20 +251,8 @@ export function ProductSearch({
             return;
           }
           
-          // Priority 3: If no item is selected (no valid selection), trigger checkout if cart has items
-          // This handles the case where user presses Enter with search results visible but nothing selected
-          if (hasCartItems) {
-            onCheckout();
-            return;
-          }
-          
-          // Priority 4: If no search query and no cart items, do nothing (don't trigger checkout)
-          // This prevents accidental checkout when user just presses Enter
-          if (!searchQuery && !hasCartItems) {
-            return;
-          }
-          
-          // Fallback: If we have a search query but no valid selection and no cart items, do nothing
+          // If no search results and no selection, do nothing
+          // Let the global handler in Index.tsx handle checkout
           break;
         case "Escape":
           e.preventDefault();
@@ -276,7 +260,7 @@ export function ProductSearch({
           break;
       }
     },
-    [flatProducts, selectedIndex, showAddNew, searchQuery, onProductSelect, onAddNewProduct, onSearchChange, onCheckout, hasCartItems]
+    [flatProducts, selectedIndex, showAddNew, searchQuery, onProductSelect, onAddNewProduct, onSearchChange]
   );
 
   // Scroll selected item into view
