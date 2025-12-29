@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Settings as SettingsIcon, Trash2, AlertTriangle, RefreshCw, DollarSign } from "lucide-react";
+import { ArrowLeft, Settings as SettingsIcon, Trash2, AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ResetFinancialDataDialog } from "@/components/ResetFinancialDataDialog";
-import { OtherFeesTab } from "@/components/OtherFeesTab";
 import { useToast } from "@/hooks/use-toast";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
@@ -39,14 +38,10 @@ export default function Settings() {
 
         {/* Settings Tabs */}
         <Tabs defaultValue="data" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-1 mb-6">
             <TabsTrigger value="data" className="gap-2">
               <AlertTriangle className="w-4 h-4" />
               Data Management
-            </TabsTrigger>
-            <TabsTrigger value="fees" className="gap-2">
-              <DollarSign className="w-4 h-4" />
-              Other Fees
             </TabsTrigger>
           </TabsList>
 
@@ -112,10 +107,6 @@ export default function Settings() {
             </div>
           </TabsContent>
 
-          {/* Other Fees Tab */}
-          <TabsContent value="fees" className="mt-0">
-            <OtherFeesTab />
-          </TabsContent>
         </Tabs>
       </div>
 

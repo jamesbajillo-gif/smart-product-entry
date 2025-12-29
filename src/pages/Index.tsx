@@ -9,7 +9,6 @@ import { ReceiptDialog } from "@/components/ReceiptDialog";
 import { GCashTransactionDialog, GCashTransactionDetails } from "@/components/GCashTransactionDialog";
 import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
 import { GCashTransactionsDialog } from "@/components/GCashTransactionsDialog";
-import { BottleDepositRefundDialog } from "@/components/BottleDepositRefundDialog";
 import { StoreFundsDialog } from "@/components/StoreFundsDialog";
 import { StoreFundsHistoryDialog } from "@/components/StoreFundsHistoryDialog";
 import { TransactionHistoryDialog } from "@/components/TransactionHistoryDialog";
@@ -23,8 +22,7 @@ import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { salesApi, SaleRecord, FeeRecord, checkApiConnection } from "@/services/mysqlApi";
-import { getApplicableFees, calculateFeeAmount, getProductsForFee, calculateTotalFees } from "@/utils/fees";
+import { salesApi, SaleRecord, checkApiConnection } from "@/services/mysqlApi";
 import { Terminal, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3, CircleDot, Wallet, Settings, Plus, Calendar } from "lucide-react";
 
 const Index = () => {
@@ -63,7 +61,6 @@ const Index = () => {
   const [showGcashDialog, setShowGcashDialog] = useState(false);
   const [showAddFundsDialog, setShowAddFundsDialog] = useState(false);
   const [showGCashTransactionsDialog, setShowGCashTransactionsDialog] = useState(false);
-  const [showBottleDepositRefundDialog, setShowBottleDepositRefundDialog] = useState(false);
   const [showStoreFundsDialog, setShowStoreFundsDialog] = useState(false);
   const [showStoreFundsHistoryDialog, setShowStoreFundsHistoryDialog] = useState(false);
   const [showTransactionHistoryDialog, setShowTransactionHistoryDialog] = useState(false);
@@ -85,43 +82,6 @@ const Index = () => {
 
   const itemCount = orderItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Calculate bottle deposit for beverages
-  const calculateBottleDeposit = useMemo(() => {
-    let totalBottleDeposit = 0;
-    const bottleDepositBreakdown: Array<{ productName: string; quantity: number; deposit: number; total: number }> = [];
-
-    orderItems.forEach((item) => {
-      const product = item.product;
-      const isBeverages = product.category?.toLowerCase().trim() === 'beverages';
-      
-      if (isBeverages) {
-        // Get remembered bottle deposit enabled state
-        const enabledKey = `beverages_bottle_deposit_enabled_${product.id}`;
-        const enabled = localStorage.getItem(enabledKey);
-        const isEnabled = enabled === null ? true : enabled === 'true'; // Default to enabled
-        
-        if (isEnabled) {
-          // Get remembered bottle deposit amount
-          const depositKey = `beverages_bottle_deposit_${product.id}`;
-          const saved = localStorage.getItem(depositKey);
-          const depositAmount = saved ? parseFloat(saved) : 10; // Default ₱10
-          
-          if (!isNaN(depositAmount) && depositAmount > 0) {
-            const depositTotal = depositAmount * item.quantity;
-            totalBottleDeposit += depositTotal;
-            bottleDepositBreakdown.push({
-              productName: product.name,
-              quantity: item.quantity,
-              deposit: depositAmount,
-              total: depositTotal,
-            });
-          }
-        }
-      }
-    });
-
-    return { total: totalBottleDeposit, breakdown: bottleDepositBreakdown };
-  }, [orderItems]);
 
   // Calculate subtotal (product prices + services only)
   const subtotal = useMemo(() => {
@@ -135,31 +95,8 @@ const Index = () => {
     }, 0);
   }, [orderItems]);
 
-  // Calculate applicable fees
-  const [applicableFees, setApplicableFees] = useState<FeeRecord[]>([]);
-  const [totalFees, setTotalFees] = useState(0);
-
-  useEffect(() => {
-    if (orderItems.length > 0) {
-      getApplicableFees(orderItems).then((fees) => {
-        setApplicableFees(fees);
-        let feesTotal = 0;
-        fees.forEach(fee => {
-          // Get matching items for this fee
-          const matchingItems = getProductsForFee(fee, orderItems);
-          const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
-          feesTotal += calculateFeeAmount(fee, subtotal, matchingItemsCount);
-        });
-        setTotalFees(feesTotal);
-      });
-    } else {
-      setApplicableFees([]);
-      setTotalFees(0);
-    }
-  }, [orderItems, subtotal]);
-
-  // Calculate total (subtotal + fees + bottle deposit)
-  const totalWithBottleDeposit = subtotal + totalFees + calculateBottleDeposit.total;
+  // Calculate total
+  const total = subtotal;
   
   // Calculate today's total completed sales
   const todayTotalSales = useMemo(() => {
@@ -498,31 +435,6 @@ const Index = () => {
     return calculatedTotal;
   }, [gcashHistory]);
 
-  // Calculate total unrefunded bottle deposits
-  const totalUnrefundedBottleDeposits = useMemo(() => {
-    return sales.reduce((total, sale) => {
-      // Skip if already refunded
-      if (sale.bottle_deposit_refunded === 1) return total;
-      
-      try {
-        const items = parseSaleItems(sale.items);
-        
-        // Sum up all bottle deposit totals from items
-        const depositTotal = items.reduce((sum, item: any) => {
-          // Check if item has bottleDepositTotal (from beverages)
-          if (item.bottleDepositTotal && typeof item.bottleDepositTotal === 'number') {
-            return sum + item.bottleDepositTotal;
-          }
-          return sum;
-        }, 0);
-        
-        return total + depositTotal;
-      } catch (error) {
-        console.error("Error calculating unrefunded bottle deposits:", error, sale);
-        return total;
-      }
-    }, 0);
-  }, [sales]);
 
   // Ensure GCASH product exists
   useEffect(() => {
@@ -776,13 +688,6 @@ const Index = () => {
     }
   }, [setOrderItems]);
   
-  const handleToggleFees = useCallback((productId: string, enabled: boolean) => {
-    setOrderItems((prev) =>
-      prev.map((item) =>
-        item.product.id === productId ? { ...item, feesEnabled: enabled } : item
-      )
-    );
-  }, [setOrderItems]);
   
   const handleUpdateTotal = useCallback((productId: string, customTotal: number | undefined) => {
     setOrderItems((prev) =>
@@ -838,31 +743,41 @@ const Index = () => {
   // Global keyboard shortcuts handler
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // Skip if any dialog/modal is open
-      if (document.querySelector('.fixed.inset-0.z-50')) {
-        return;
-      }
-
       const activeEl = document.activeElement;
       const isInputFocused = activeEl instanceof HTMLInputElement ||
           activeEl instanceof HTMLTextAreaElement;
       const searchInput = document.querySelector('input[type="text"][placeholder*="search"]') as HTMLInputElement;
       const isSearchFocused = searchInput && document.activeElement === searchInput;
-      
-      // Check if search results are ACTIVE (visible search results exist)
-      // Search results are active when: search input has content AND there are visible result buttons
-      const hasSearchResults = searchQuery.trim().length > 0 && 
-        document.querySelectorAll('[data-index]').length > 0;
+
+      // TAB: Toggle transaction history dialog
+      // Allow Tab to toggle even when dialog is open (special case)
+      // Only when not in input/textarea/select/button (allow normal Tab navigation)
+      if (e.key === 'Tab' && !isInputFocused && 
+          !(activeEl instanceof HTMLSelectElement) && 
+          !(activeEl instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        setShowTransactionHistoryDialog((prev) => !prev);
+        return;
+      }
+
+      // Skip if any dialog/modal is open (except for Tab which is handled above)
+      if (document.querySelector('.fixed.inset-0.z-50')) {
+        return;
+      }
 
       // === SEARCH RESULTS ACTIVE ===
-      // When search results are showing, ProductSearch handles everything
-      if (hasSearchResults && isSearchFocused) {
+      // When search input is focused, ProductSearch handles keyboard events
+      // This includes: ArrowUp/Down (navigate results), Enter (select item)
+      // Even if no results match, ProductSearch should handle Enter (will do nothing safely)
+      if (isSearchFocused) {
         // Let ProductSearch handle: ArrowUp/Down (navigate), Enter (select item)
         return;
       }
 
       // === SEARCH RESULTS NOT ACTIVE + CART HAS ITEMS ===
-      if (orderItems.length > 0) {
+      // Skip if any input/textarea is focused (user might be typing elsewhere)
+      // Skip if receipt is showing (orderItems will be empty, but check explicitly for clarity)
+      if (orderItems.length > 0 && !isInputFocused && !showReceiptInCart) {
         // ENTER: Checkout
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -912,7 +827,7 @@ const Index = () => {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [cartOpen, showReceiptInCart, orderItems, searchQuery, handleCheckout, handleUpdateQuantity]);
+  }, [cartOpen, showReceiptInCart, orderItems, handleCheckout, handleUpdateQuantity]);
 
   // Generate transaction fingerprint (hash of items + total)
   const generateTransactionFingerprint = useCallback((items: OrderItem[], total: number): string => {
@@ -968,7 +883,7 @@ const Index = () => {
     const itemsToReceipt = [...orderItems];
     const paymentToReceipt = details;
     
-    // Calculate total amount (subtotal + fees + bottle deposit)
+    // Calculate total amount
     // Use customTotal if set, otherwise use product price
     const subtotal = itemsToReceipt.reduce((sum, item) => {
       const itemPrice = item.customTotal !== undefined 
@@ -981,9 +896,7 @@ const Index = () => {
       return sum + itemPrice + servicesTotal;
     }, 0);
     
-    const fees = paymentToReceipt.totalFees || 0;
-    const bottleDeposit = paymentToReceipt.bottleDeposit || 0;
-    const total = subtotal + fees + bottleDeposit;
+    const total = subtotal;
     
     // Generate transaction fingerprint
     const fingerprint = generateTransactionFingerprint(itemsToReceipt, total);
@@ -1012,6 +925,15 @@ const Index = () => {
     // Clear cart items and status bar
     setOrderItems([]);
     setRecentlyAddedItems([]);
+    
+    // Reset all transaction-related states
+    lastModifiedProductIdRef.current = null; // Clear last modified product
+    setSearchQuery(""); // Clear search query
+    
+    // Blur search input if focused
+    if (searchInputRef.current) {
+      searchInputRef.current.blur();
+    }
     
     // Open cart first, then show receipt (ensures smooth flip animation)
     setCartOpen(true);
@@ -1060,10 +982,20 @@ const Index = () => {
   }, []);
 
   const handleCloseReceipt = useCallback(() => {
+    // Reset all receipt-related states
     setReceiptItems(null);
     setReceiptPayment(null);
     setShowReceiptInCart(false);
-    setCartOpen(false); // Close cart to complete transaction
+    setCartOpen(false);
+    
+    // Ensure all transaction states are reset
+    lastModifiedProductIdRef.current = null;
+    setSearchQuery("");
+    
+    // Blur search input if focused
+    if (searchInputRef.current) {
+      searchInputRef.current.blur();
+    }
   }, []);
 
   const handleGcashTransaction = useCallback(async (details: GCashTransactionDetails) => {
@@ -1262,7 +1194,7 @@ const Index = () => {
               }`}>
                 {formattedDate}
               </span>
-              <span className={`text-xs font-mono ${
+              <span className={`text-xs font-mono font-medium ${
                 isOnline ? 'text-success' : 'text-destructive'
               }`}>
                 {formattedTime}
@@ -1270,18 +1202,19 @@ const Index = () => {
             </div>
             
             {/* Today's Total Sales */}
-            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
-              <Receipt className="w-3.5 h-3.5 text-primary" />
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/10 border border-primary/20">
+              <Receipt className="w-3 h-3 text-primary" />
               <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Today:</span>
-              <span className="text-sm font-bold font-mono text-primary">
-                ₱{todayTotalSales.toFixed(2)}
+              <span className="text-xs font-mono font-semibold text-primary">
+                ₱{todayTotalSales.toFixed(0)}
               </span>
             </div>
             
             {/* GCash Funds - Permanently Displayed */}
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/10 border border-primary/20">
               <Smartphone className="w-3 h-3 text-primary" />
-              <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-primary">GCash</span>
+              <div className="flex items-center gap-1">
                 <button
                   onClick={() => setShowAddFundsDialog(true)}
                   className={`text-xs font-mono font-semibold hover:opacity-80 transition-opacity ${gcashCredits < 0 ? 'text-destructive' : 'text-primary'}`}
@@ -1302,17 +1235,17 @@ const Index = () => {
             
             {/* Pending Sales Count */}
             {pendingSalesCount > 0 && (
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-warning/20 text-warning shrink-0">
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-warning/20 border border-warning/30 text-warning">
                 <CloudOff className="w-3 h-3" />
-                <span className="text-xs">{pendingSalesCount} pending</span>
+                <span className="text-xs font-medium">{pendingSalesCount} pending</span>
               </div>
             )}
             
             {/* Syncing Indicator */}
             {isSyncing && (
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/20 text-primary shrink-0">
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/20 border border-primary/30 text-primary">
                 <RefreshCw className="w-3 h-3 animate-spin" />
-                <span className="text-xs hidden sm:inline">Syncing...</span>
+                <span className="text-xs font-medium hidden sm:inline">Syncing...</span>
               </div>
             )}
           </div>
@@ -1323,31 +1256,22 @@ const Index = () => {
             {gcashMoney > 0 && (
               <button
                 onClick={() => setShowGCashTransactionsDialog(true)}
-                className="flex items-center justify-center w-7 h-7 rounded-full shrink-0 bg-info/20 text-info border border-info/30 hover:bg-info/30 transition-colors"
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-info/20 border border-info/30 text-info hover:bg-info/30 transition-colors"
                 title={`GCASH-MONEY: ₱${gcashMoney.toFixed(2)}`}
               >
-                <TrendingUp className="w-3.5 h-3.5" />
-              </button>
-            )}
-            
-            {/* Bottle Deposit */}
-            {totalUnrefundedBottleDeposits > 0 && (
-              <button
-                onClick={() => setShowBottleDepositRefundDialog(true)}
-                className="flex items-center justify-center w-7 h-7 rounded-full shrink-0 bg-warning/20 text-warning border border-warning/30 hover:bg-warning/30 transition-colors"
-                title={`Bottle Deposit: ₱${totalUnrefundedBottleDeposits.toFixed(2)}`}
-              >
-                <CircleDot className="w-3.5 h-3.5" />
+                <TrendingUp className="w-3 h-3" />
+                <span className="text-xs font-mono font-semibold">₱{gcashMoney.toFixed(0)}</span>
               </button>
             )}
             
             {/* Store Funds */}
             <button
               onClick={() => setShowStoreFundsHistoryDialog(true)}
-              className="flex items-center justify-center w-7 h-7 rounded-full shrink-0 bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 transition-colors"
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/20 border border-primary/30 text-primary hover:bg-primary/30 transition-colors"
               title={`Store Funds: ₱${storeFunds.toFixed(2)}`}
             >
-              <Wallet className="w-3.5 h-3.5" />
+              <Wallet className="w-3 h-3" />
+              <span className="text-xs font-mono font-semibold">₱{storeFunds.toFixed(0)}</span>
             </button>
             
             {/* Pending sync */}
@@ -1355,23 +1279,19 @@ const Index = () => {
               <button
                 onClick={triggerSync}
                 disabled={isSyncing}
-                className={`flex items-center justify-center w-7 h-7 rounded-full shrink-0 transition-colors relative ${
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 border transition-colors relative ${
                   isSyncing 
-                    ? 'bg-muted text-muted-foreground' 
-                    : 'bg-warning/20 text-warning hover:bg-warning/30'
+                    ? 'bg-muted border-muted text-muted-foreground' 
+                    : 'bg-warning/20 border-warning/30 text-warning hover:bg-warning/30'
                 }`}
                 title={`${pendingSalesCount} pending sale(s) - Click to sync`}
               >
                 {isSyncing ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <RefreshCw className="w-3 h-3 animate-spin" />
                 ) : (
-                  <CloudOff className="w-3.5 h-3.5" />
+                  <CloudOff className="w-3 h-3" />
                 )}
-                {pendingSalesCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center px-0.5 bg-warning text-warning-foreground text-[9px] font-bold rounded-full">
-                    {pendingSalesCount}
-                  </span>
-                )}
+                <span className="text-xs font-medium">{pendingSalesCount}</span>
               </button>
             )}
             
@@ -1550,7 +1470,6 @@ const Index = () => {
           items={orderItems}
           onRemoveItem={handleRemoveItem}
           onUpdateQuantity={handleUpdateQuantity}
-          onToggleFees={handleToggleFees}
           onUpdateTotal={handleUpdateTotal}
           onClearOrder={handleClearOrder}
           onCheckout={handleCheckout}
@@ -1564,12 +1483,7 @@ const Index = () => {
           showReceipt={showReceiptInCart}
           receiptItems={receiptItems}
           receiptPayment={receiptPayment}
-          onCloseReceipt={() => {
-            setShowReceiptInCart(false);
-            setReceiptItems(null);
-            setReceiptPayment(null);
-            setCartOpen(false); // Close cart to complete transaction
-          }}
+          onCloseReceipt={handleCloseReceipt}
         />
         </div>
       </div>
@@ -1587,12 +1501,7 @@ const Index = () => {
       {showPayment && (
         <PaymentDialog
           subtotal={subtotal}
-          fees={applicableFees}
-          totalFees={totalFees}
-          orderItems={orderItems}
-          bottleDeposit={calculateBottleDeposit.total}
-          bottleDepositBreakdown={calculateBottleDeposit.breakdown}
-          total={totalWithBottleDeposit}
+          total={total}
           onConfirm={handlePaymentConfirm}
           onCancel={handlePaymentCancel}
         />
@@ -1634,18 +1543,6 @@ const Index = () => {
         <GCashTransactionsDialog
           sales={sales}
           onClose={() => setShowGCashTransactionsDialog(false)}
-        />
-      )}
-
-      {/* Bottle Deposit Refund Dialog */}
-      {showBottleDepositRefundDialog && (
-        <BottleDepositRefundDialog
-          sales={sales}
-          onClose={() => setShowBottleDepositRefundDialog(false)}
-          onRefunded={async () => {
-            await loadSales();
-            setShowBottleDepositRefundDialog(false);
-          }}
         />
       )}
 

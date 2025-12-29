@@ -6,14 +6,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PaymentDetails } from "./PaymentDialog";
-import { getApplicableFees, calculateFeeAmount, getProductsForFee, FeeRecord } from "@/utils/fees";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 
 interface OrderSidebarProps {
   items: OrderItem[];
   onRemoveItem: (productId: string) => void;
   onUpdateQuantity: (productId: string, quantity: number) => void;
-  onToggleFees?: (productId: string, enabled: boolean) => void;
   onUpdateTotal?: (productId: string, customTotal: number | undefined) => void;
   onClearOrder: () => void;
   onCheckout: () => void;
@@ -29,7 +27,6 @@ export function OrderSidebar({
   items, 
   onRemoveItem, 
   onUpdateQuantity, 
-  onToggleFees,
   onUpdateTotal,
   onClearOrder,
   onCheckout,
@@ -42,7 +39,6 @@ export function OrderSidebar({
 }: OrderSidebarProps) {
   const { products } = useMySQLSync();
   const [showServicesDialog, setShowServicesDialog] = useState(false);
-  const [applicableFees, setApplicableFees] = useState<FeeRecord[]>([]);
   const [editingTotalItemId, setEditingTotalItemId] = useState<string | null>(null);
   const [totalEditValue, setTotalEditValue] = useState<string>("");
   const totalInputRef = useRef<HTMLInputElement>(null);
@@ -176,13 +172,6 @@ export function OrderSidebar({
   }, [showReceipt, receiptItems, receiptPayment]);
 
   // Load applicable fees when cart items change
-  useEffect(() => {
-    if (items.length > 0) {
-      getApplicableFees(items).then(setApplicableFees);
-    } else {
-      setApplicableFees([]);
-    }
-  }, [items]);
   
   // Calculate receipt totals
   const receiptSubtotal = useMemo(() => {
@@ -197,9 +186,7 @@ export function OrderSidebar({
     }, 0);
   }, [receiptItems]);
   
-  const receiptBottleDeposit = receiptPayment?.bottleDeposit || 0;
-  const receiptFees = receiptPayment?.totalFees || 0;
-  const receiptTotal = receiptSubtotal + receiptBottleDeposit + receiptFees;
+  const receiptTotal = receiptSubtotal;
   const receiptItemCount = receiptItems?.reduce((sum, item) => sum + item.quantity, 0) || 0;
   const now = new Date();
   
@@ -216,22 +203,7 @@ export function OrderSidebar({
     return sum + productTotal + servicesTotal;
   }, 0);
 
-  // Calculate total fees (only for items with feesEnabled !== false)
-  const totalFees = useMemo(() => {
-    let fees = 0;
-    // Filter items that have fees enabled (default to true if not set)
-    const itemsWithFeesEnabled = items.filter(item => item.feesEnabled !== false);
-    
-    applicableFees.forEach(fee => {
-      // Get matching items for this fee (only those with fees enabled)
-      const matchingItems = getProductsForFee(fee, itemsWithFeesEnabled);
-      const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
-      fees += calculateFeeAmount(fee, subtotal, matchingItemsCount);
-    });
-    return fees;
-  }, [applicableFees, subtotal, items]);
-
-  const total = subtotal + totalFees;
+  const total = subtotal;
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   
   // Calculate total services fees
@@ -334,14 +306,7 @@ export function OrderSidebar({
                   );
                   const calculatedTotal = item.product.price * item.quantity + servicesTotal;
                   const itemTotal = item.customTotal !== undefined ? item.customTotal : calculatedTotal;
-                  const feesEnabled = item.feesEnabled !== false; // Default to true
                   const isEditingTotal = editingTotalItemId === item.product.id;
-                  
-                  // Check if this item has applicable fees
-                  const itemHasFees = applicableFees.some(fee => {
-                    const matchingItems = getProductsForFee(fee, [item]);
-                    return matchingItems.length > 0;
-                  });
                   
                   const { productName, variationName } = getProductAndVariation(item.product.id, item.product.name);
                   const displayName = variationName ? `${productName} - ${variationName}` : productName;
@@ -376,19 +341,6 @@ export function OrderSidebar({
                           <Plus className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                      
-                      {/* Fee Toggle */}
-                      {itemHasFees && onToggleFees && (
-                        <Checkbox
-                          id={`fee-toggle-${item.product.id}-${index}`}
-                          checked={feesEnabled}
-                          onCheckedChange={(checked) => {
-                            onToggleFees(item.product.id, checked === true);
-                          }}
-                          className="w-4 h-4"
-                          title={feesEnabled ? "Fees enabled" : "Fees disabled"}
-                        />
-                      )}
                       
                       {/* Price - Editable */}
                       {isEditingTotal && onUpdateTotal ? (
@@ -469,31 +421,6 @@ export function OrderSidebar({
                   <Info className="w-3 h-3" />
                   <span>Services: ₱{totalServicesFee.toFixed(2)}</span>
                 </button>
-              )}
-              {totalFees > 0 && (
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Tag className="w-3 h-3" />
-                    <span>Fees:</span>
-                  </div>
-                  {applicableFees.map((fee) => {
-                    // Only count items with fees enabled
-                    const itemsWithFeesEnabled = items.filter(item => item.feesEnabled !== false);
-                    const matchingItems = getProductsForFee(fee, itemsWithFeesEnabled);
-                    const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
-                    const feeAmount = calculateFeeAmount(fee, subtotal, matchingItemsCount);
-                    return (
-                      <div key={fee.id} className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">{fee.name}:</span>
-                        <span className="font-mono">₱{feeAmount.toFixed(2)}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex items-center justify-between text-sm font-medium border-t border-border/50 pt-1">
-                    <span>Total Fees:</span>
-                    <span className="font-mono">₱{totalFees.toFixed(2)}</span>
-                  </div>
-                </div>
               )}
               <div className="flex items-center justify-between">
                 <span className="text-lg font-medium text-muted-foreground">Total</span>
@@ -618,36 +545,6 @@ export function OrderSidebar({
                       <span>Subtotal</span>
                       <span>₱{receiptSubtotal.toFixed(2)}</span>
                     </div>
-                  {receiptPayment?.fees && receiptPayment.fees.length > 0 && receiptPayment.enabledFeeIds && (
-                    <>
-                      {receiptPayment.fees
-                        .filter(fee => fee.id && receiptPayment.enabledFeeIds?.includes(fee.id))
-                        .map((fee) => {
-                          // Calculate fee amount for receipt display
-                          const matchingItems = getProductsForFee(fee, receiptItems || []);
-                          const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
-                          const feeAmount = calculateFeeAmount(fee, receiptSubtotal, matchingItemsCount);
-                          return (
-                            <div key={fee.id} className="flex justify-between text-foreground">
-                              <span>{fee.name}</span>
-                              <span>₱{feeAmount.toFixed(2)}</span>
-                            </div>
-                          );
-                        })}
-                      {receiptFees > 0 && (
-                        <div className="flex justify-between text-foreground font-medium">
-                          <span>Total Fees</span>
-                          <span>₱{receiptFees.toFixed(2)}</span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                    {receiptBottleDeposit > 0 && (
-                      <div className="flex justify-between text-foreground">
-                        <span>Bottle Deposit</span>
-                        <span>₱{receiptBottleDeposit.toFixed(2)}</span>
-                      </div>
-                    )}
                     <div className="divider border-t border-dashed border-border my-2" />
                     <div className="flex justify-between text-lg font-bold text-primary">
                       <span>Total</span>
@@ -708,12 +605,12 @@ export function OrderSidebar({
       <Dialog open={showServicesDialog} onOpenChange={setShowServicesDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Services & Fees Breakdown</DialogTitle>
+            <DialogTitle>Services Breakdown</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 mt-4">
             {servicesBreakdown.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">
-                No services or fees applied
+                No services applied
               </p>
             ) : (
               <>

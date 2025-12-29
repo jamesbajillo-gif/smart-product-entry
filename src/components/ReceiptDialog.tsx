@@ -4,7 +4,6 @@ import { X, CheckCircle, Banknote, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { PaymentDetails } from "./PaymentDialog";
-import { calculateFeeAmount, getProductsForFee } from "@/utils/fees";
 
 interface ReceiptDialogProps {
   items: OrderItem[];
@@ -22,9 +21,7 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
     );
     return sum + productTotal + servicesTotal;
   }, 0);
-  const bottleDeposit = paymentDetails.bottleDeposit || 0;
-  const fees = paymentDetails.totalFees || 0;
-  const total = subtotal + bottleDeposit + fees;
+  const total = subtotal;
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const now = new Date();
 
@@ -133,49 +130,6 @@ export function ReceiptDialog({ items, paymentDetails, onClose }: ReceiptDialogP
             <span>₱{subtotal.toFixed(2)}</span>
           </div>
 
-          {paymentDetails.fees && paymentDetails.fees.length > 0 && paymentDetails.enabledFeeIds && (
-            <>
-              {paymentDetails.fees
-                .filter(fee => fee.id && paymentDetails.enabledFeeIds?.includes(fee.id))
-                .map((fee) => {
-                  // Calculate fee amount for receipt display
-                  const matchingItems = getProductsForFee(fee, items);
-                  const matchingItemsCount = matchingItems.reduce((sum, item) => sum + item.quantity, 0);
-                  const feeAmount = calculateFeeAmount(fee, subtotal, matchingItemsCount);
-                  return (
-                    <div key={fee.id} className="flex justify-between text-muted-foreground text-xs mb-1">
-                      <span>{fee.name}</span>
-                      <span>₱{feeAmount.toFixed(2)}</span>
-                    </div>
-                  );
-                })}
-              {fees > 0 && (
-                <div className="flex justify-between text-foreground text-xs font-medium mb-1">
-                  <span>Total Fees</span>
-                  <span>₱{fees.toFixed(2)}</span>
-                </div>
-              )}
-            </>
-          )}
-
-          {bottleDeposit > 0 && (
-            <>
-              <div className="flex justify-between text-info text-xs mb-1">
-                <span>Bottle Deposit</span>
-                <span>₱{bottleDeposit.toFixed(2)}</span>
-              </div>
-              {paymentDetails.bottleDepositBreakdown && paymentDetails.bottleDepositBreakdown.length > 0 && (
-                <div className="ml-4 space-y-0.5 mb-1">
-                  {paymentDetails.bottleDepositBreakdown.map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-xs text-muted-foreground">
-                      <span>{item.productName} × {item.quantity} @ ₱{item.deposit.toFixed(2)}</span>
-                      <span>₱{item.total.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
 
           <div className="divider border-t border-dashed border-border my-2" />
 

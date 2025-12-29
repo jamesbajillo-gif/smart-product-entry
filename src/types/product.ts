@@ -55,7 +55,6 @@ export interface OrderItem {
   product: Product;
   quantity: number;
   selectedServices?: ProductService[]; // Services selected for this order item
-  feesEnabled?: boolean; // Whether fees apply to this item (default: true)
   customTotal?: number; // Manual override for total price of this item
 }
 

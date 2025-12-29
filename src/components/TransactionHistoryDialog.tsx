@@ -1,8 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
-import { X, RefreshCw, Receipt, FileText, Truck, Wallet, Smartphone, Filter, Calendar, TrendingUp, TrendingDown, Trash2, AlertTriangle } from "lucide-react";
+import { X, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { salesApi, SaleRecord, expensesApi, ExpenseRecord, stockApi, StockAdjustmentRecord, storeFundsApi, StoreFundTransaction, productsApi } from "@/services/mysqlApi";
 import { useGCashFunds, GCashFundTransaction } from "@/hooks/useGCashFunds";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
@@ -25,6 +23,9 @@ interface UnifiedTransaction {
   category?: string;
   operatorName?: string;
   details?: any;
+  saleId?: string; // For grouping items from same sale
+  isFirstInGroup?: boolean; // First item in a transaction group
+  isLastInGroup?: boolean; // Last item in a transaction group
 }
 
 export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogProps) {
@@ -35,11 +36,6 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
   const [gcashTransactions, setGcashTransactions] = useState<GCashFundTransaction[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TransactionType | 'all'>('all');
-  const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'month' | 'all'>('all');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [transactionToDelete, setTransactionToDelete] = useState<UnifiedTransaction | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
 
   const { history: gcashHistory } = useGCashFunds();
   const { refresh: refreshStoreFunds } = useStoreFunds();
@@ -56,12 +52,12 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
   const loadAllTransactions = async () => {
     setIsLoading(true);
     try {
-      // Load all transaction types in parallel
+      // Load only recent transactions (limit to 50 for recent logs)
       const [salesResult, expensesResult, stockResult, storeFundsResult] = await Promise.all([
-        salesApi.getAll({ limit: 500 }),
-        expensesApi.getAll(500),
-        stockApi.getAllHistory(500),
-        storeFundsApi.getHistory(500),
+        salesApi.getAll({ limit: 50 }),
+        expensesApi.getAll(50),
+        stockApi.getAllHistory(50),
+        storeFundsApi.getHistory(50),
       ]);
 
       if (salesResult.success && salesResult.data) {
@@ -89,24 +85,58 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
   const unifiedTransactions = useMemo(() => {
     const transactions: UnifiedTransaction[] = [];
 
-    // Sales
+    // Sales - break down into individual items, grouped by sale
     sales.forEach((sale) => {
       try {
         const items = JSON.parse(sale.items || '[]');
-        const itemNames = items.map((item: any) => `${item.name} (x${item.quantity})`).join(', ');
-        transactions.push({
-          id: `sale-${sale.id}`,
-          type: 'sale',
-          amount: Number(sale.total),
-          date: sale.created_at ? new Date(sale.created_at) : new Date(),
-          description: itemNames || 'Sale',
-          paymentMethod: sale.payment_method,
-          operatorName: sale.operator_name,
-          details: sale,
-        });
+        const saleDate = sale.created_at ? new Date(sale.created_at) : new Date();
+        const saleId = `sale-${sale.id}`;
+        
+        if (items.length > 0) {
+          // Create individual transaction entries for each item in the sale
+          items.forEach((item: any, index: number) => {
+            const itemPrice = (item.price || 0) * (item.quantity || 0);
+            // Add service charges if any
+            const servicesTotal = (item.selectedServices || []).reduce(
+              (sum: number, service: any) => sum + (service.price || 0) * (item.quantity || 0),
+              0
+            );
+            const totalItemAmount = itemPrice + servicesTotal;
+            
+            transactions.push({
+              id: `${saleId}-${index}`,
+              type: 'sale',
+              amount: totalItemAmount,
+              date: saleDate,
+              description: `${item.name || 'Item'} (x${item.quantity || 1})`,
+              paymentMethod: sale.payment_method,
+              operatorName: sale.operator_name,
+              details: { ...sale, itemIndex: index },
+              saleId: saleId,
+              isFirstInGroup: index === 0,
+              isLastInGroup: index === items.length - 1,
+            });
+          });
+        } else {
+          // Fallback if no items parsed
+          transactions.push({
+            id: saleId,
+            type: 'sale',
+            amount: Number(sale.total),
+            date: saleDate,
+            description: 'Sale',
+            paymentMethod: sale.payment_method,
+            operatorName: sale.operator_name,
+            details: sale,
+            saleId: saleId,
+            isFirstInGroup: true,
+            isLastInGroup: true,
+          });
+        }
       } catch (e) {
+        const saleId = `sale-${sale.id}`;
         transactions.push({
-          id: `sale-${sale.id}`,
+          id: saleId,
           type: 'sale',
           amount: Number(sale.total),
           date: sale.created_at ? new Date(sale.created_at) : new Date(),
@@ -114,6 +144,9 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
           paymentMethod: sale.payment_method,
           operatorName: sale.operator_name,
           details: sale,
+          saleId: saleId,
+          isFirstInGroup: true,
+          isLastInGroup: true,
         });
       }
     });
@@ -200,101 +233,70 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
     return transactions.sort((a, b) => b.date.getTime() - a.date.getTime());
   }, [sales, expenses, stockAdjustments, storeFundsTransactions, gcashTransactions]);
 
-  // Filter by date
-  const filteredTransactions = useMemo(() => {
-    let filtered = unifiedTransactions;
-
-    // Apply date filter
-    if (dateFilter !== 'all') {
-      const now = new Date();
-      let startDate: Date;
-
-      switch (dateFilter) {
-        case 'today':
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          break;
-        case 'week':
-          startDate = new Date(now);
-          startDate.setDate(now.getDate() - 7);
-          break;
-        case 'month':
-          startDate = new Date(now);
-          startDate.setMonth(now.getMonth() - 1);
-          break;
-        default:
-          startDate = new Date(0);
+  // Get only recent transactions (last 30) - group items from same sale together
+  const recentTransactions = useMemo(() => {
+    // Sort by date (newest first), then by saleId to keep grouped items together
+    const sorted = unifiedTransactions.sort((a, b) => {
+      // First sort by date
+      const dateDiff = b.date.getTime() - a.date.getTime();
+      if (dateDiff !== 0) return dateDiff;
+      
+      // If same date, group by saleId (items from same sale stay together)
+      if (a.saleId && b.saleId) {
+        return a.saleId.localeCompare(b.saleId);
       }
+      if (a.saleId) return -1;
+      if (b.saleId) return 1;
+      
+      // For non-sale transactions, keep original order
+      return 0;
+    });
+    return sorted.slice(0, 30);
+  }, [unifiedTransactions]);
 
-      filtered = filtered.filter(tx => tx.date >= startDate);
-    }
-
-    // Apply type filter
-    if (activeTab !== 'all') {
-      filtered = filtered.filter(tx => tx.type === activeTab);
-    }
-
-    return filtered;
-  }, [unifiedTransactions, activeTab, dateFilter]);
-
-  // Calculate totals
-  const totals = useMemo(() => {
-    const income = filteredTransactions.filter(tx => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
-    const expenses = filteredTransactions.filter(tx => tx.amount < 0).reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
-    const net = income - expenses;
-
-    return { income, expenses, net };
-  }, [filteredTransactions]);
 
   const formatDate = (date: Date) => {
     return format(date, 'MMM dd, yyyy HH:mm');
   };
 
-  const getTransactionIcon = (type: TransactionType) => {
-    switch (type) {
-      case 'sale':
-        return <Receipt className="w-4 h-4" />;
-      case 'expense':
-        return <FileText className="w-4 h-4" />;
-      case 'restock':
-        return <Truck className="w-4 h-4" />;
-      case 'store_funds':
-        return <Wallet className="w-4 h-4" />;
-      case 'gcash':
-        return <Smartphone className="w-4 h-4" />;
-      default:
-        return <Receipt className="w-4 h-4" />;
+  const formatLogLine = (tx: UnifiedTransaction, prevTx: UnifiedTransaction | null, nextTx: UnifiedTransaction | null) => {
+    const dateStr = formatDate(tx.date);
+    const amountStr = `${tx.amount >= 0 ? '+' : ''}₱${Math.abs(tx.amount).toFixed(2)}`;
+    const typeStr = tx.type.toUpperCase().padEnd(12);
+    
+    // Check if this is part of a grouped sale
+    const isGroupedSale = tx.saleId && tx.type === 'sale';
+    const isFirstInGroup = tx.isFirstInGroup || (isGroupedSale && (!prevTx || prevTx.saleId !== tx.saleId));
+    const isLastInGroup = tx.isLastInGroup || (isGroupedSale && (!nextTx || nextTx.saleId !== tx.saleId));
+    
+    // Check if previous transaction was from a different sale (need blank line before this transaction)
+    const isNewTransaction = !prevTx || !prevTx.saleId || prevTx.saleId !== tx.saleId;
+    
+    let line = '';
+    
+    if (isFirstInGroup && isGroupedSale) {
+      // First item in grouped sale - show with opening bracket
+      line = `${dateStr} | ${typeStr} | [ ${tx.description.padEnd(35)} | ${amountStr}`;
+    } else if (isLastInGroup && isGroupedSale && !isFirstInGroup) {
+      // Last item in grouped sale - show with closing bracket
+      line = `                | ${typeStr} |   ${tx.description.padEnd(35)} | ${amountStr} ]`;
+    } else if (isGroupedSale && !isFirstInGroup && !isLastInGroup) {
+      // Middle item in grouped sale - indented, no brackets
+      line = `                | ${typeStr} |   ${tx.description.padEnd(35)} | ${amountStr}`;
+    } else {
+      // Regular transaction (not grouped or single item sale)
+      line = `${dateStr} | ${typeStr} | ${tx.description.padEnd(40)} | ${amountStr}`;
     }
-  };
-
-  const getTransactionColor = (type: TransactionType) => {
-    switch (type) {
-      case 'sale':
-        return 'text-success';
-      case 'expense':
-      case 'restock':
-        return 'text-destructive';
-      case 'store_funds':
-        return 'text-primary';
-      case 'gcash':
-        return 'text-info';
-      default:
-        return 'text-muted-foreground';
-    }
+    
+    // Add blank line before new transaction (different sale)
+    return isNewTransaction && prevTx ? `\n${line}` : line;
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
-      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-[98vw] max-h-[95vh] flex flex-col animate-scale-in">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-lg">
-              <Receipt className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">Transaction History</h2>
-              <p className="text-sm text-muted-foreground">All financial transactions</p>
-            </div>
-          </div>
+      <div className="bg-background border border-border rounded-lg p-4 sm:p-6 w-full max-w-[98vw] max-h-[95vh] flex flex-col animate-scale-in">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground">Recent Transaction Logs</h2>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -315,187 +317,24 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="glass-panel rounded-lg p-4 border border-success/20">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-4 h-4 text-success" />
-              <span className="text-sm text-muted-foreground">Total Income</span>
-            </div>
-            <p className="text-2xl font-bold text-success">₱{totals.income.toFixed(2)}</p>
-          </div>
-          <div className="glass-panel rounded-lg p-4 border border-destructive/20">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingDown className="w-4 h-4 text-destructive" />
-              <span className="text-sm text-muted-foreground">Total Expenses</span>
-            </div>
-            <p className="text-2xl font-bold text-destructive">₱{totals.expenses.toFixed(2)}</p>
-          </div>
-          <div className={`glass-panel rounded-lg p-4 border ${totals.net >= 0 ? 'border-success/20' : 'border-destructive/20'}`}>
-            <div className="flex items-center gap-2 mb-2">
-              <Receipt className={`w-4 h-4 ${totals.net >= 0 ? 'text-success' : 'text-destructive'}`} />
-              <span className="text-sm text-muted-foreground">Net Amount</span>
-            </div>
-            <p className={`text-2xl font-bold ${totals.net >= 0 ? 'text-success' : 'text-destructive'}`}>
-              ₱{totals.net.toFixed(2)}
-            </p>
-          </div>
+        {/* Plain Text Logs */}
+        <div className="flex-1 overflow-y-auto bg-secondary/30 rounded p-4 font-mono text-sm">
+          {isLoading ? (
+            <div className="text-muted-foreground">Loading...</div>
+          ) : recentTransactions.length === 0 ? (
+            <div className="text-muted-foreground">No transactions found</div>
+          ) : (
+            <pre className="whitespace-pre-wrap text-foreground">
+              {recentTransactions.map((tx, index) => 
+                formatLogLine(
+                  tx, 
+                  index > 0 ? recentTransactions[index - 1] : null,
+                  index < recentTransactions.length - 1 ? recentTransactions[index + 1] : null
+                )
+              ).join('\n')}
+            </pre>
+          )}
         </div>
-
-        {/* Filters */}
-        <div className="flex gap-4 mb-4">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value as any)}
-              className="px-3 py-2 bg-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="all">All Time</option>
-              <option value="today">Today</option>
-              <option value="week">Last 7 Days</option>
-              <option value="month">Last 30 Days</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-6">
-            <TabsTrigger value="all">All</TabsTrigger>
-            <TabsTrigger value="sale">Sales</TabsTrigger>
-            <TabsTrigger value="expense">Expenses</TabsTrigger>
-            <TabsTrigger value="restock">Restocking</TabsTrigger>
-            <TabsTrigger value="store_funds">Store Funds</TabsTrigger>
-            <TabsTrigger value="gcash">GCash</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value={activeTab} className="flex-1 overflow-y-auto mt-4">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="w-8 h-8 text-primary animate-spin" />
-              </div>
-            ) : filteredTransactions.length === 0 ? (
-              <div className="text-center py-12">
-                <Receipt className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No transactions found</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {filteredTransactions.map((tx, index) => {
-                  // For GCash transactions, calculate credit usage
-                  const gcashDetails = tx.type === 'gcash' ? tx.details as GCashFundTransaction : null;
-                  let creditsChange = 0;
-                  let creditsChangeLabel = "";
-                  
-                  if (gcashDetails) {
-                    // Sort transactions by timestamp to ensure chronological order
-                    const sortedTransactions = [...gcashTransactions].sort((a, b) => a.timestamp - b.timestamp);
-                    const currentIndex = sortedTransactions.findIndex(t => t.id === gcashDetails.id);
-                    
-                    if (gcashDetails.type === "add") {
-                      // Credits are added
-                      if (currentIndex > 0) {
-                        const prevTransaction = sortedTransactions[currentIndex - 1];
-                        creditsChange = gcashDetails.creditsBalance - prevTransaction.creditsBalance;
-                      } else {
-                        creditsChange = gcashDetails.creditsBalance;
-                      }
-                      creditsChangeLabel = "Credits Added";
-                    } else if (gcashDetails.type === "gcash-in") {
-                      // Credits are deducted for GCASH-IN
-                      if (currentIndex > 0) {
-                        const prevTransaction = sortedTransactions[currentIndex - 1];
-                        creditsChange = prevTransaction.creditsBalance - gcashDetails.creditsBalance;
-                      } else {
-                        creditsChange = gcashDetails.amount;
-                      }
-                      creditsChangeLabel = "Credits Used";
-                    } else if (gcashDetails.type === "gcash-out") {
-                      // Credits are added for GCASH-OUT
-                      if (currentIndex > 0) {
-                        const prevTransaction = sortedTransactions[currentIndex - 1];
-                        creditsChange = gcashDetails.creditsBalance - prevTransaction.creditsBalance;
-                      } else {
-                        creditsChange = gcashDetails.amount;
-                      }
-                      creditsChangeLabel = "Credits Received";
-                    }
-                  }
-                  
-                  return (
-                    <div
-                      key={tx.id}
-                      className="glass-panel rounded-lg p-4 hover:bg-secondary/30 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 flex-1">
-                          <div className={`p-2 rounded-lg ${getTransactionColor(tx.type)}/20`}>
-                            {getTransactionIcon(tx.type)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-foreground truncate">{tx.description}</p>
-                            <div className="flex items-center gap-3 mt-1">
-                              <span className="text-xs text-muted-foreground">{formatDate(tx.date)}</span>
-                              {tx.operatorName && (
-                                <span className="text-xs px-2 py-0.5 bg-info/20 text-info rounded">
-                                  {tx.operatorName}
-                                </span>
-                              )}
-                              {tx.category && (
-                                <span className="text-xs px-2 py-0.5 bg-secondary rounded text-muted-foreground">
-                                  {tx.category}
-                                </span>
-                              )}
-                              {tx.paymentMethod && (
-                                <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
-                                  {tx.paymentMethod}
-                                </span>
-                              )}
-                            </div>
-                            
-                            {/* GCash Credits Usage and Balance */}
-                            {gcashDetails && (
-                              <div className="mt-2 p-2 bg-secondary/30 rounded-lg space-y-1">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-muted-foreground">{creditsChangeLabel}:</span>
-                                  <span className={`font-mono font-semibold ${
-                                    creditsChange >= 0 ? 'text-success' : 'text-destructive'
-                                  }`}>
-                                    {creditsChange >= 0 ? '+' : ''}₱{Math.abs(creditsChange).toFixed(2)}
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between text-xs pt-1 border-t border-border/30">
-                                  <span className="text-muted-foreground">Remaining Credits:</span>
-                                  <span className={`font-mono font-semibold ${
-                                    gcashDetails.creditsBalance < 0 ? 'text-destructive' : 'text-primary'
-                                  }`}>
-                                    ₱{gcashDetails.creditsBalance.toFixed(2)}
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-muted-foreground">Cash Balance:</span>
-                                  <span className="font-mono font-semibold text-warning">
-                                    ₱{gcashDetails.cashBalance.toFixed(2)}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className={`text-lg font-bold ${tx.amount >= 0 ? 'text-success' : 'text-destructive'}`}>
-                            {tx.amount >= 0 ? '+' : ''}₱{Math.abs(tx.amount).toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
       </div>
     </div>
   );
