@@ -75,14 +75,14 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
   // Calculate total amount customer pays/sends
   // For GCASH-IN: 
   //   - Amount entered = GCash credits customer receives (transaction value)
-  //   - Customer pays: amount (the transaction value)
-  //   - Service charge: separate revenue (added to cash, not part of transaction)
-  //   - If deductServiceFeeFromGCash: service charge deducted from GCash credits instead
-  // For GCASH-OUT: If deductServiceFeeFromGCash is enabled, customer sends amount + service charge
-  //                Otherwise, customer sends only the amount (service fee paid separately in cash)
+  //   - If toggle OFF: Customer pays cash = amount + service charge
+  //   - If toggle ON: Customer pays cash = amount only, service charge deducted from GCash credits
+  // For GCASH-OUT: 
+  //   - If toggle OFF: Customer sends GCash = amount only, service fee paid separately in cash
+  //   - If toggle ON: Customer sends GCash = amount + service charge
   const totalAmount = transactionType === "gcash-out" 
     ? (deductServiceFeeFromGCash ? numericAmount + serviceCharge : numericAmount)  // GCASH-OUT: Depends on option
-    : (deductServiceFeeFromGCash ? numericAmount : numericAmount);  // GCASH-IN: Customer pays amount (transaction value), service charge is separate
+    : (deductServiceFeeFromGCash ? numericAmount : numericAmount + serviceCharge);  // GCASH-IN: Customer pays amount + service charge (unless deducted from GCash)
   const isValid = numericAmount > 0;
   // Allow transactions even with insufficient funds - will show negative balance
   const isValidTransaction = isValid;
@@ -312,16 +312,24 @@ export function GCashTransactionDialog({ currentBalance, onConfirm, onCancel }: 
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-border/50">
                       <span className="text-sm font-medium text-foreground">Total to Pay (Cash):</span>
-                      <span className="text-lg font-bold font-mono text-warning">₱{numericAmount.toFixed(2)}</span>
+                      <span className="text-lg font-bold font-mono text-warning">₱{totalAmount.toFixed(2)}</span>
                     </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-muted-foreground">Service Charge (Revenue):</span>
-                      <span className="text-xs font-mono text-warning">₱{serviceCharge.toFixed(2)}</span>
-                    </div>
+                    {!deductServiceFeeFromGCash && (
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-muted-foreground">Breakdown:</span>
+                        <span className="text-xs font-mono text-muted-foreground">₱{numericAmount.toFixed(2)} + ₱{serviceCharge.toFixed(2)} fee</span>
+                      </div>
+                    )}
                     {deductServiceFeeFromGCash && (
-                      <p className="text-xs text-muted-foreground mt-2 text-center">
-                        Service fee will be deducted from GCash balance
-                      </p>
+                      <>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs text-muted-foreground">Service Charge (Deducted from GCash):</span>
+                          <span className="text-xs font-mono text-warning">₱{serviceCharge.toFixed(2)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2 text-center">
+                          Service fee will be deducted from GCash balance
+                        </p>
+                      </>
                     )}
                   </>
                 )}

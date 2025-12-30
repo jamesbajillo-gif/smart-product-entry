@@ -171,8 +171,6 @@ export function OrderSidebar({
     return showReceipt && receiptItems !== null && receiptItems.length > 0 && receiptPayment !== null;
   }, [showReceipt, receiptItems, receiptPayment]);
 
-  // Load applicable fees when cart items change
-  
   // Calculate receipt totals
   const receiptSubtotal = useMemo(() => {
     if (!receiptItems) return 0;

@@ -1008,33 +1008,48 @@ const Index = () => {
     if (details.type === "gcash-in") {
       // GCASH-IN: Customer pays cash, we send GCash credit
       // - Amount: GCash credits customer receives (transaction value)
-      // - Customer pays cash: amount (the transaction value)
-      // - Service charge: separate revenue (added to cash, not part of what customer pays)
-      // - Adds to GCash Cash: customer pays cash (amount) + service charge (revenue)
-      // - Deducts from GCash Credits: we send GCash to customer (amount)
-      // - If deductServiceFeeFromGCash: service charge also deducted from credits
+      // - If toggle OFF: Customer pays cash = amount + service charge, service charge added to cash
+      // - If toggle ON: Customer pays cash = amount only, service charge deducted from GCash credits
+      // - Deducts from GCash Credits: we send GCash to customer (amount, or amount + service charge if toggle ON)
       // Allow negative balances - transaction will proceed even if insufficient funds
-      fundResult = processGCashIn(details.amount, serviceCharge, details.gcashNumber, details.notes);
-      if (!fundResult.success) {
-        toast({
-          title: "Transaction Failed",
-          description: fundResult.error || "Failed to process transaction",
-          variant: "destructive",
-        });
-        return;
-      }
       
-      // If service fee should be deducted from GCash Credits (toggle ON), deduct it
       if (details.deductServiceFeeFromGCash && serviceCharge > 0) {
-        // Deduct service charge from GCash Credits (but it's already added to Cash as revenue)
-        // This is a separate adjustment to credits balance
+        // Toggle ON: Customer pays only amount, service charge deducted from GCash credits
+        // Process transaction: amount to cash, amount deducted from credits
+        fundResult = processGCashIn(details.amount, 0, details.gcashNumber, details.notes);
+        if (!fundResult.success) {
+          toast({
+            title: "Transaction Failed",
+            description: fundResult.error || "Failed to process transaction",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // Deduct service charge from GCash Credits only (not added to cash)
+        // We need to adjust: deduct serviceCharge from credits, but don't add to cash
+        // Since processGCashIn always adds to cash, we'll use a workaround:
+        // Call processGCashIn then manually adjust cash balance back
         const adjustmentResult = await processGCashIn(serviceCharge, 0, undefined, "Service fee deduction from credits");
-        if (adjustmentResult.success && 'creditsBalance' in adjustmentResult) {
+        if (adjustmentResult.success && 'creditsBalance' in adjustmentResult && 'cashBalance' in adjustmentResult) {
+          // Undo the cash addition from the adjustment call
+          const correctedCashBalance = adjustmentResult.cashBalance - serviceCharge;
           fundResult = { 
             ...adjustmentResult, 
             creditsBalance: adjustmentResult.creditsBalance,
-            cashBalance: fundResult.cashBalance // Keep the cash balance from the original transaction
+            cashBalance: correctedCashBalance
           };
+        }
+      } else {
+        // Toggle OFF: Customer pays amount + service charge, both added to cash
+        fundResult = processGCashIn(details.amount, serviceCharge, details.gcashNumber, details.notes);
+        if (!fundResult.success) {
+          toast({
+            title: "Transaction Failed",
+            description: fundResult.error || "Failed to process transaction",
+            variant: "destructive",
+          });
+          return;
         }
       }
       
@@ -1117,10 +1132,11 @@ const Index = () => {
     // Determine payment method based on transaction type
     // For GCASH-OUT with toggle OFF: Customer sends amount via GCash, service fee paid separately in cash
     // For GCASH-OUT with toggle ON: Customer sends amount + service fee via GCash
-    // For GCASH-IN: Customer pays cash (amount = transaction value, service charge is separate revenue)
+    // For GCASH-IN: Customer pays cash (amount + service charge if toggle OFF, or amount only if toggle ON)
+    // For GCASH-OUT: Customer sends GCash (amount only if toggle OFF, or amount + service charge if toggle ON)
     const paymentDetails: PaymentDetails = {
       method: details.type === "gcash-in" ? "cash" : "gcash",
-      amountTendered: details.type === "gcash-in" ? details.amount : details.totalAmount, // GCASH-IN: customer pays amount (transaction value), service charge is separate revenue
+      amountTendered: details.totalAmount, // Total amount customer pays/sends
       change: 0,
     };
     
