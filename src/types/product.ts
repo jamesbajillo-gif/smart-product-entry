@@ -28,6 +28,7 @@ export interface ProductVariation {
   name: string;
   price: number;
   stock_quantity?: number;
+  image_url?: string;
   suppliers?: ProductSupplier[];
 }
 

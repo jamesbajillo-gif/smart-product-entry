@@ -240,10 +240,10 @@ export function OrderSidebar({
       <aside 
         tabIndex={-1}
         className={`
-        fixed top-0 right-0 h-full w-full max-w-md glass-panel z-50
+        fixed top-0 right-0 h-full w-full max-w-md window-border bg-card z-50
         transform transition-transform duration-300 ease-out
         ${isOpen ? 'translate-x-0' : 'translate-x-full'}
-        lg:static lg:translate-x-0 lg:w-96 lg:rounded-lg lg:h-full
+        lg:static lg:translate-x-0 lg:w-96 lg:h-full
         perspective-1000
         focus:outline-none
       `}>
@@ -264,12 +264,12 @@ export function OrderSidebar({
             }}
           >
             {/* Header */}
-            <div className="p-4 border-b border-border">
+            <div className="p-4 border-b border-border bg-card">
               <div className="flex items-center gap-3">
-                <div className="relative p-2 bg-primary/20 rounded-lg">
+                <div className="relative p-2 bg-primary/10 border border-primary/20">
                   <ShoppingCart className="w-5 h-5 text-primary" />
                   {itemCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 flex items-center justify-center px-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-full">
+                    <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 flex items-center justify-center px-1.5 bg-primary text-primary-foreground text-xs font-bold rounded">
                       {itemCount}
                     </span>
                   )}
@@ -281,7 +281,7 @@ export function OrderSidebar({
                 {/* Close button - mobile only */}
                 <button 
                   onClick={onClose}
-                  className="p-2 rounded-lg hover:bg-secondary lg:hidden"
+                  className="p-2 hover:bg-muted transition-colors lg:hidden"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -289,7 +289,7 @@ export function OrderSidebar({
             </div>
 
             {/* Items list */}
-            <div className="flex-1 overflow-auto p-4 space-y-2">
+            <div className="flex-1 overflow-auto p-4 space-y-2 bg-background">
               {items.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -307,25 +307,29 @@ export function OrderSidebar({
                   const isEditingTotal = editingTotalItemId === item.product.id;
                   
                   const { productName, variationName } = getProductAndVariation(item.product.id, item.product.name);
-                  const displayName = variationName ? `${productName} - ${variationName}` : productName;
                   
                   return (
                     <div
                       key={`${item.product.id}-${index}-${(item.selectedServices || []).map(s => s.id).join(',')}`}
-                      className="flex items-center gap-2 p-2 bg-secondary/50 rounded hover:bg-secondary transition-colors"
+                      className="flex items-center gap-2 p-3 bg-card border border-border hover:bg-muted/50 transition-colors"
                     >
                       {/* Product Name */}
                         <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">
-                          {displayName}
+                          {productName}
                           </p>
+                          {variationName && (
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">
+                              {variationName}
+                            </p>
+                          )}
                             </div>
                       
                       {/* Quantity Controls */}
                       <div className="flex items-center gap-1">
                           <button
                             onClick={() => onUpdateQuantity(item.product.id, item.quantity - 1)}
-                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                           >
                           <Minus className="w-3.5 h-3.5" />
                           </button>
@@ -334,7 +338,7 @@ export function OrderSidebar({
                           </span>
                           <button
                             onClick={() => onUpdateQuantity(item.product.id, item.quantity + 1)}
-                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                           >
                           <Plus className="w-3.5 h-3.5" />
                           </button>
@@ -399,7 +403,7 @@ export function OrderSidebar({
                       {/* Remove Button */}
                       <button
                         onClick={() => onRemoveItem(item.product.id)}
-                        className="p-1 rounded hover:bg-destructive/20 text-destructive transition-colors shrink-0"
+                        className="p-1 hover:bg-destructive/20 text-destructive transition-colors shrink-0"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -410,7 +414,7 @@ export function OrderSidebar({
             </div>
 
             {/* Footer with total and actions */}
-            <div className="p-4 border-t border-border space-y-4 bg-background/50">
+            <div className="p-4 border-t border-border space-y-4 bg-card">
               {totalServicesFee > 0 && (
                 <button
                   onClick={() => setShowServicesDialog(true)}
@@ -457,9 +461,9 @@ export function OrderSidebar({
             }}
           >
               {/* Receipt Header */}
-              <div className="p-4 border-b border-border">
+              <div className="p-4 border-b border-border bg-card">
                 <div className="flex items-center gap-3">
-                  <div className="relative p-2 bg-success/20 rounded-lg">
+                  <div className="relative p-2 bg-success/10 border border-success/20">
                     <CheckCircle className="w-5 h-5 text-success" />
                   </div>
                   <div className="flex-1">
@@ -470,7 +474,7 @@ export function OrderSidebar({
                     onClick={() => {
                       if (onCloseReceipt) onCloseReceipt();
                     }}
-                    className="p-2 rounded-lg hover:bg-secondary lg:hidden"
+                    className="p-2 hover:bg-muted transition-colors lg:hidden"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -478,8 +482,8 @@ export function OrderSidebar({
               </div>
 
               {/* Receipt Content */}
-              <div className="flex-1 overflow-auto p-4">
-                <div className="bg-card border border-border rounded-lg p-4 font-mono text-sm">
+              <div className="flex-1 overflow-auto p-4 bg-background">
+                <div className="bg-card border border-border p-4 font-mono text-sm">
                   <div className="header text-center mb-4">
                     <h1 className="text-lg font-bold text-foreground">Sari-Sari Store</h1>
                     <p className="text-muted-foreground text-xs">
@@ -585,7 +589,7 @@ export function OrderSidebar({
               </div>
 
               {/* Receipt Footer */}
-              <div className="p-4 border-t border-border bg-background/50">
+              <div className="p-4 border-t border-border bg-card">
                 <Button 
                   className="w-full"
                   onClick={() => {
@@ -615,7 +619,7 @@ export function OrderSidebar({
                 {servicesBreakdown.map((service, index) => (
                   <div
                     key={index}
-                    className="p-3 bg-secondary/30 rounded-lg border border-border/50"
+                    className="p-3 bg-muted/50 border border-border"
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex-1 min-w-0">

@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Product } from "@/types/product";
-import { Search, Plus, Tag, AlertTriangle, Package } from "lucide-react";
+import { Search, Plus, Tag, AlertTriangle, Package, Layers, Smartphone } from "lucide-react";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
 import { getAllCategories, getAllCategoriesAsync } from "@/utils/categories";
+import { parseVariations } from "@/utils/variationParser";
 
 interface ProductSearchProps {
   products: Product[];
@@ -10,7 +11,10 @@ interface ProductSearchProps {
   onSearchChange: (query: string) => void;
   onProductSelect: (product: Product) => void;
   onAddNewProduct: (name: string) => void;
+  onAddVariation?: (product: Product) => void;
   searchInputRef?: React.RefObject<HTMLInputElement>;
+  gcashEnabled?: boolean;
+  showStockStatus?: boolean;
 }
 
 const getStockStatus = (product: Product) => {
@@ -23,13 +27,16 @@ const getStockStatus = (product: Product) => {
   return 'ok';
 };
 
-export function ProductSearch({
+function ProductSearchComponent({
   products,
   searchQuery,
   onSearchChange,
   onProductSelect,
   onAddNewProduct,
+  onAddVariation,
   searchInputRef,
+  gcashEnabled = false,
+  showStockStatus = true,
 }: ProductSearchProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [categoryOrder, setCategoryOrder] = useState<string[]>(getAllCategories());
@@ -49,40 +56,27 @@ export function ProductSearch({
 
   const filteredProducts = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
-    if (!query) return [];
+    if (!query || query.length < 2) return []; // Early return for empty or single character queries
     
     // Filter products that match the search query
     // Exclude parent products that have no price, BUT keep products that have variations with prices
     return products.filter((product) => {
-      // Check if product name matches
-      const productNameMatches = product.name.toLowerCase().includes(query);
+      // Fast path: check product name first (most common case)
+      const productNameLower = product.name.toLowerCase();
+      const productNameMatches = productNameLower.includes(query);
+      
+      // If product has price and name matches, include immediately
+      if (productNameMatches && product.price != null && product.price > 0) {
+        return true;
+      }
+      
+      // Parse variations using cached parser
+      const variations = parseVariations(product);
       
       // Check if any variation name matches
-      const variations = product.variations || [];
-      let variationNameMatches = false;
-      
-      if (Array.isArray(variations)) {
-        variationNameMatches = variations.some((v: any) => {
-          if (v && v.name && typeof v.name === 'string') {
-            return v.name.toLowerCase().includes(query);
-          }
-          return false;
-        });
-      } else if (typeof variations === 'string') {
-        try {
-          const parsed = JSON.parse(variations);
-          if (Array.isArray(parsed)) {
-            variationNameMatches = parsed.some((v: any) => {
-              if (v && v.name && typeof v.name === 'string') {
-                return v.name.toLowerCase().includes(query);
-              }
-              return false;
-            });
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
+      const variationNameMatches = variations.some((v) => {
+        return v?.name?.toLowerCase().includes(query);
+      });
       
       // Match if either product name or variation name matches
       const matchesQuery = productNameMatches || variationNameMatches;
@@ -94,10 +88,11 @@ export function ProductSearch({
       }
       
       // If product has no price, check if it has variations with prices
-      const hasVariationsWithPrices = variations.some((v: any) => v && v.price != null && v.price > 0);
+      const hasVariationsWithPrices = variations.some((v) => v && v.price != null && v.price > 0);
       
-      // Include product if it has variations with prices (even if parent has no price)
-      return hasVariationsWithPrices;
+      // Include product if it has variations with prices OR if product name matches (to allow adding variations)
+      // This allows parent products without prices to show up for variation management
+      return hasVariationsWithPrices || productNameMatches;
     });
   }, [products, searchQuery]);
 
@@ -147,24 +142,48 @@ export function ProductSearch({
   // Flatten for keyboard navigation - includes base products and variations
   const flatProducts = useMemo(() => {
     const flat: Product[] = [];
+    
     groupedProducts.forEach(({ products: categoryProducts }) => {
       categoryProducts.forEach((product) => {
-        const variations = product.variations || [];
         const parentHasPrice = product.price != null && product.price > 0;
+        
+        // Check if this is a GCash product and add hardcoded variations if GCash is enabled
+        const isGcashProduct = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
+        
+        // Use optimized variation parser
+        let allVariations = parseVariations(product);
+        
+        if (isGcashProduct && gcashEnabled) {
+          // Add hardcoded GCash-In and GCash-Out variations
+          const gcashInVariation = {
+            id: 'gcash-in-hardcoded',
+            name: 'GCash-In',
+            price: 0, // Price will be set when transaction is created
+            stock_quantity: 0,
+          };
+          const gcashOutVariation = {
+            id: 'gcash-out-hardcoded',
+            name: 'GCash-Out',
+            price: 0, // Price will be set when transaction is created
+            stock_quantity: 0,
+          };
+          
+          allVariations = [gcashInVariation, gcashOutVariation, ...allVariations];
+        }
         
         // Add base product only if it has a price
         if (parentHasPrice) {
           flat.push(product);
         }
         
-        // Add variations that have prices
-        variations.forEach(v => {
-          if (v.price != null && v.price > 0) {
+        // Add variations (including hardcoded GCash variations with price 0)
+        allVariations.forEach(v => {
+          if (v && (v.price != null && v.price > 0) || (isGcashProduct && gcashEnabled && (v.id === 'gcash-in-hardcoded' || v.id === 'gcash-out-hardcoded'))) {
             flat.push({
               ...product,
               id: `${product.id}-${v.id || v.name}`,
               name: product.name, // Keep base product name
-              price: v.price,
+              price: v.price || 0,
               stock_quantity: v.stock_quantity,
             });
           }
@@ -172,7 +191,7 @@ export function ProductSearch({
       });
     });
     return flat;
-  }, [groupedProducts]);
+  }, [groupedProducts, gcashEnabled]);
 
   const showAddNew = searchQuery.length > 0 && filteredProducts.length === 0;
 
@@ -278,7 +297,7 @@ export function ProductSearch({
   };
 
   return (
-    <div className="glass-panel rounded-lg p-6 glow-primary">
+    <div className="window-border bg-card p-4 w-full h-full overflow-hidden">
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         <input
@@ -288,34 +307,65 @@ export function ProductSearch({
           onChange={(e) => onSearchChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Start typing to search products..."
-          className="w-full pl-12 pr-4 py-4 bg-input rounded-lg text-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+          className="w-full pl-12 pr-4 py-4 bg-white border-2 border-gray-300 text-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-200 ease-out shadow-sm"
         />
       </div>
 
       {searchQuery && (
         <div
           ref={listRef}
-          className="mt-4 max-h-[400px] overflow-auto space-y-4 animate-slide-up"
+          className="mt-4 overflow-y-auto overflow-x-hidden space-y-4 animate-slide-up"
+          style={{ maxHeight: 'calc(100vh - 200px)' }}
         >
           {groupedProducts.map(({ category, products: categoryProducts }) => (
             <div key={category}>
-              <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                <Tag className="w-3 h-3" />
+              <div className="flex items-center gap-2 px-3 py-2 mb-2 text-xs font-bold text-gray-600 uppercase tracking-wider bg-gray-50 border-l-4 border-primary">
+                <Tag className="w-4 h-4 text-primary" />
                 {category}
               </div>
               <div className="space-y-1">
-                {categoryProducts.flatMap((product) => {
-                  const variations = product.variations || [];
+                {categoryProducts.map((product) => {
+                  // Use optimized variation parser
+                  let parsedVariations = parseVariations(product);
+                  
+                  // Check if this is a GCash product and add hardcoded variations if GCash is enabled
+                  const isGcashProduct = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
+                  if (isGcashProduct && gcashEnabled) {
+                    // Add hardcoded GCash-In and GCash-Out variations
+                    const gcashInVariation = {
+                      id: 'gcash-in-hardcoded',
+                      name: 'GCash-In',
+                      price: 0, // Price will be set when transaction is created
+                      stock_quantity: 0,
+                    };
+                    const gcashOutVariation = {
+                      id: 'gcash-out-hardcoded',
+                      name: 'GCash-Out',
+                      price: 0, // Price will be set when transaction is created
+                      stock_quantity: 0,
+                    };
+                    parsedVariations = [gcashInVariation, gcashOutVariation, ...parsedVariations];
+                  }
                   
                   // Check if parent product has a price
                   const parentHasPrice = product.price != null && product.price > 0;
                   
-                  // Create array with base product (only if it has a price) and all variations with prices
+                  // Check if product can have variations (has variations already or no price)
+                  const canHaveVariations = parsedVariations.length > 0 || !parentHasPrice;
+                  
+                  // Create array with base product (only if it has a price) and all variations
                   const itemsToShow = [
                     // Only include base product if it has a price
                     ...(parentHasPrice ? [{ product, isVariation: false, variation: null }] : []),
-                    // Include all variations that have prices
-                    ...variations.filter(v => v.price != null && v.price > 0).map(v => {
+                    // Include all variations (including hardcoded GCash variations with price 0)
+                    ...parsedVariations.filter(v => {
+                      // For hardcoded GCash variations, always include them
+                      if (isGcashProduct && gcashEnabled && (v.id === 'gcash-in-hardcoded' || v.id === 'gcash-out-hardcoded')) {
+                        return true;
+                      }
+                      // For other variations, only include if they have a price > 0
+                      return v && v.price != null && v.price > 0;
+                    }).map(v => {
                       // Check if variation name is auto-generated (contains price pattern)
                       // Auto-generated format: "Product Name - ₱X.XX"
                       const variationName = v.name && v.name.trim() ? v.name.trim() : '';
@@ -329,23 +379,58 @@ export function ProductSearch({
                         ? `${product.name} - ${variationName}`
                         : product.name;
                       
+                      // Check if this is a hardcoded GCash variation
+                      const isHardcodedGcash = v.id === 'gcash-in-hardcoded' || v.id === 'gcash-out-hardcoded';
+                      
                       return {
                         product: { 
                           ...product, 
                           id: `${product.id}-${v.id || v.name}`,
                           name: displayName,
-                          price: v.price, 
+                          price: v.price || 0, // Allow price 0 for hardcoded GCash variations
                           stock_quantity: v.stock_quantity,
-                          // Use base product's image_url for variations (variations don't have their own thumbnails)
-                          image_url: product.image_url
+                          // Use variation's image_url if available, otherwise fallback to base product's image_url
+                          image_url: v.image_url || product.image_url
                         }, 
                         isVariation: true, 
-                        variation: v 
+                        variation: v,
+                        isHardcodedGcash // Flag to identify hardcoded GCash variations
                       };
                     })
                   ];
                   
-                  return itemsToShow.map((item, itemIdx) => {
+                  return (
+                    <div key={product.id} className="space-y-1">
+                      {/* Show parent product name if it has no price (non-selectable, for variation management only) */}
+                      {!parentHasPrice && (
+                        <div className="w-full flex items-center justify-between p-4 bg-muted/30 border border-muted">
+                          <div className="flex items-center gap-3 flex-1 min-w-0 overflow-hidden">
+                            {product.image_url ? (
+                              <img
+                                src={product.image_url}
+                                alt={product.name}
+                                className="w-10 h-10 object-cover shrink-0"
+                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                              />
+                            ) : (
+                              <div className="w-10 h-10 bg-secondary flex items-center justify-center shrink-0">
+                                <Package className="w-5 h-5 text-muted-foreground/50" />
+                              </div>
+                            )}
+                            <div className="text-left flex-1 min-w-0 overflow-hidden">
+                              <div className="flex items-start gap-2 min-w-0">
+                                <span className="font-medium text-muted-foreground line-clamp-2 break-words overflow-hidden text-ellipsis">{product.name}</span>
+                                <span className="text-xs text-muted-foreground/70 px-1.5 py-0.5 bg-muted/50 rounded shrink-0 mt-0.5">
+                                  Parent
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">No price - Add variation to sell</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {itemsToShow.map((item, itemIdx) => {
                     const itemProduct = item.product;
                     const itemStockStatus = getStockStatus(itemProduct);
                     const itemStock = itemProduct.stock_quantity ?? 0;
@@ -358,42 +443,67 @@ export function ProductSearch({
                         key={itemProduct.id}
                         data-index={itemIndex}
                         onClick={() => onProductSelect(itemProduct)}
-                        className={`w-full flex items-center justify-between p-4 rounded-lg transition-all ${
+                        className={`w-full flex items-center justify-between p-4 transition-all duration-200 ease-out ${
                           isSelected
-                            ? "bg-primary/20 border border-primary/50 ring-2 ring-primary/30"
-                            : "bg-secondary/50 hover:bg-secondary border border-transparent"
-                        } ${itemStockStatus === 'out' ? 'opacity-60' : ''} ${item.isVariation ? 'ml-4 border-l-2 border-primary/30' : ''}`}
+                            ? "bg-primary border-2 border-primary shadow-lg scale-[1.02] overflow-visible z-10"
+                            : "bg-white border-2 border-transparent hover:border-primary/30 hover:bg-primary/5 hover:shadow-md active:scale-[0.98] overflow-hidden"
+                        } ${itemStockStatus === 'out' && showStockStatus ? 'opacity-60' : ''} ${item.isVariation ? 'ml-4 border-l-4 border-primary/50' : ''}`}
+                        style={{
+                          transform: isSelected ? 'scale(1.02) translateZ(0)' : 'scale(1) translateZ(0)',
+                          willChange: 'transform, background-color, border-color',
+                        }}
                       >
-                        <div className="flex items-center gap-3">
-                          {/* For variations, use base product's image_url; for base product, use its own image_url */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0 overflow-hidden">
+                          {/* For variations, use variation's image_url if available, otherwise base product's image_url; for base product, use its own image_url */}
                           {(() => {
                             const imageUrl = item.isVariation 
-                              ? product.image_url  // Variations use base product's thumbnail
+                              ? (item.variation?.image_url || product.image_url)  // Variations use their own image if available, otherwise base product's thumbnail
                               : itemProduct.image_url; // Base product uses its own thumbnail
-                            return imageUrl ? (
-                              <img
-                                src={imageUrl}
-                                alt={itemProduct.name}
-                                className="w-10 h-10 object-cover rounded-lg"
-                                onError={(e) => (e.currentTarget.style.display = 'none')}
-                              />
-                            ) : (
-                              <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
-                                <Package className="w-5 h-5 text-muted-foreground/50" />
+                            return (
+                              <div className="relative shrink-0 flex items-center justify-center w-12 h-12">
+                                {imageUrl ? (
+                                  <img
+                                    src={imageUrl}
+                                    alt={itemProduct.name}
+                                    className="object-cover w-12 h-12 rounded-sm"
+                                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                                  />
+                                ) : (
+                                  <div className="bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center w-12 h-12 rounded-sm">
+                                    <Package className="w-6 h-6 text-gray-400" />
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}
-                          <div className="text-left">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-foreground">{itemProduct.name}</span>
+                          <div className="text-left flex-1 min-w-0 overflow-visible">
+                            <div className="flex items-start gap-2 min-w-0">
+                              <span 
+                                className={`font-semibold line-clamp-2 break-words overflow-visible text-ellipsis transition-all duration-300 ease-out ${
+                                  isSelected 
+                                    ? 'scale-[2] text-primary font-bold' 
+                                    : 'scale-100 text-gray-800'
+                                }`}
+                                style={{
+                                  transformOrigin: 'left center',
+                                  willChange: 'transform',
+                                  display: 'inline-block',
+                                }}
+                              >
+                                {itemProduct.name}
+                              </span>
                               {item.isVariation && (
-                                <span className="text-xs text-muted-foreground/70 px-1.5 py-0.5 bg-info/20 text-info rounded">
+                                <span className={`text-xs px-2 py-1 rounded-md shrink-0 mt-0.5 transition-all duration-200 ${
+                                  isSelected 
+                                    ? 'bg-primary-foreground/20 text-primary-foreground font-medium' 
+                                    : 'bg-blue-100 text-blue-700 font-normal'
+                                }`}>
                                   Variation
                                 </span>
                               )}
                             </div>
-                            {/* Stock indicator - only show for products that track stock */}
-                            {!itemProduct.skip_stock_tracking && (
+                            {/* Stock indicator - only show for products that track stock and if stock status is enabled */}
+                            {showStockStatus && !itemProduct.skip_stock_tracking && (
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 {itemStockStatus === 'out' ? (
                                   <span className="text-xs text-destructive flex items-center gap-1">
@@ -415,28 +525,63 @@ export function ProductSearch({
                           </div>
                         </div>
                         {(() => {
-                          // Check if this is GCash product
+                          // Check if this is GCash product or hardcoded GCash variation
                           const isGcash = itemProduct.name.toUpperCase() === "GCASH" || itemProduct.name.toUpperCase() === "GCASH SERVICE";
+                          const isHardcodedGcashVariation = item.isHardcodedGcash || 
+                            itemProduct.id.includes('gcash-in-hardcoded') || 
+                            itemProduct.id.includes('gcash-out-hardcoded');
                           
-                          if (isGcash) {
+                          if (isGcash && !isHardcodedGcashVariation) {
                             return (
-                              <div className="text-right">
-                                <span className="text-info font-mono font-semibold block">
+                              <div className="text-right shrink-0 ml-2">
+                                <span className={`font-mono font-bold block whitespace-nowrap transition-colors duration-200 ${
+                                  isSelected ? 'text-primary-foreground text-base' : 'text-blue-600 text-sm'
+                                }`}>
                                   Funds: ₱{gcashFunds.toFixed(2)}
                                 </span>
                               </div>
                             );
                           }
                           
+                          if (isHardcodedGcashVariation) {
+                            return (
+                              <div className="text-right shrink-0 ml-2">
+                                <span className={`font-semibold block whitespace-nowrap transition-colors duration-200 ${
+                                  isSelected ? 'text-primary-foreground text-base' : 'text-blue-600 text-sm'
+                                }`}>
+                                  Service
+                                </span>
+                              </div>
+                            );
+                          }
+                          
                           return (
-                            <span className="text-primary font-mono font-semibold">
+                            <span className={`font-mono font-bold shrink-0 ml-2 whitespace-nowrap transition-colors duration-200 ${
+                              isSelected ? 'text-primary-foreground text-lg' : 'text-gray-800 text-base'
+                            }`}>
                               ₱{itemProduct.price.toFixed(2)}
                             </span>
                           );
                         })()}
                       </button>
-                    );
-                  });
+                      );
+                    })}
+                    
+                    {/* Add Variation Button - Show for products that can have variations */}
+                    {onAddVariation && canHaveVariations && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddVariation(product);
+                        }}
+                        className="w-full flex items-center justify-center gap-2 p-3 bg-primary/10 hover:bg-primary/20 border border-primary/30 text-primary transition-all text-sm font-medium"
+                      >
+                        <Layers className="w-4 h-4 shrink-0" />
+                        <span className="line-clamp-2 break-words overflow-hidden text-ellipsis">Add Variation to {product.name}</span>
+                      </button>
+                    )}
+                    </div>
+                  );
                 })}
               </div>
             </div>
@@ -446,14 +591,14 @@ export function ProductSearch({
             <button
               data-index={flatProducts.length}
               onClick={() => onAddNewProduct(searchQuery)}
-              className={`w-full flex items-center justify-center gap-3 p-4 rounded-lg transition-all ${
+              className={`w-full flex items-center justify-center gap-3 p-4 transition-all ${
                 selectedIndex === flatProducts.length
                   ? "bg-primary/20 border border-primary/50 ring-2 ring-primary/30 text-primary"
                   : "bg-primary/10 border border-primary/30 hover:bg-primary/20 text-primary"
               }`}
             >
-              <Plus className="w-5 h-5" />
-              <span className="font-medium">Add "{searchQuery}" as new product</span>
+              <Plus className="w-5 h-5 shrink-0" />
+              <span className="font-medium line-clamp-2 break-words overflow-hidden text-ellipsis">Add "{searchQuery}" as new product</span>
             </button>
           )}
         </div>
@@ -468,3 +613,19 @@ export function ProductSearch({
     </div>
   );
 }
+
+// Memoize component to prevent unnecessary re-renders
+export const ProductSearch = React.memo(ProductSearchComponent, (prevProps, nextProps) => {
+  // Custom comparison for better performance
+  // Only re-render if these props actually change
+  return (
+    prevProps.products === nextProps.products &&
+    prevProps.searchQuery === nextProps.searchQuery &&
+    prevProps.gcashEnabled === nextProps.gcashEnabled &&
+    prevProps.showStockStatus === nextProps.showStockStatus &&
+    prevProps.onProductSelect === nextProps.onProductSelect &&
+    prevProps.onSearchChange === nextProps.onSearchChange &&
+    prevProps.onAddNewProduct === nextProps.onAddNewProduct &&
+    prevProps.onAddVariation === nextProps.onAddVariation
+  );
+});

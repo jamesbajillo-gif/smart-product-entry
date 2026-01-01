@@ -24,6 +24,7 @@ import { AddProductVariationDialog } from "@/components/AddProductVariationDialo
 import { EditVariationDialog } from "@/components/EditVariationDialog";
 import { HistoryDialog } from "@/components/HistoryDialog";
 import { CategoryManagementDialog } from "@/components/CategoryManagementDialog";
+import { ImageGeneratorDialog } from "@/components/ImageGeneratorDialog";
 import { useGCashFunds } from "@/hooks/useGCashFunds";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
 import { useAvailableFunds } from "@/hooks/useAvailableFunds";
@@ -52,10 +53,14 @@ import {
   Edit,
   Settings,
   Trash2,
+  Sparkles,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPermissions } from "@/hooks/useUserPermissions";
 import { initialProducts } from "@/data/products";
+import { searchGoogleImages } from "@/services/googleImagesApi";
+import { getImageIndex, incrementImageIndex } from "@/utils/imageRefreshTracker";
+import { logger } from "@/utils/logger";
 
 export default function ProductManagement() {
   const { canDelete } = useUserPermissions();
@@ -98,6 +103,9 @@ export default function ProductManagement() {
   const [newStockQuantity, setNewStockQuantity] = useState("0");
   const [newLowStockThreshold, setNewLowStockThreshold] = useState("5");
   const [newSkipStockTracking, setNewSkipStockTracking] = useState(false);
+  const [showImageGenerator, setShowImageGenerator] = useState(false);
+  const [refreshingProducts, setRefreshingProducts] = useState<Set<string>>(new Set());
+  const [refreshingVariations, setRefreshingVariations] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState<ProductCategory>("Beverages");
   const [showCategoryManagement, setShowCategoryManagement] = useState(false);
@@ -281,6 +289,163 @@ export default function ProductManagement() {
     }
   };
 
+  const handleRefreshProductImage = async (product: Product) => {
+    if (!product.name.trim()) {
+      toast({
+        title: "Error",
+        description: "Product name is required to generate images.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setRefreshingProducts((prev) => new Set(prev).add(product.id));
+
+    try {
+      const imageIndex = getImageIndex(product.id);
+      const result = await searchGoogleImages(product.name);
+      
+      if (result.links.length === 0) {
+        toast({
+          title: "No Images Found",
+          description: "No images found for this product.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get the image at the current index (cycles through 0-9)
+      const selectedImage = result.links[imageIndex % result.links.length];
+      
+      // Update the product with the new image
+      const updateResult = await updateProduct(product.id, {
+        image_url: selectedImage,
+      });
+
+      if (updateResult.success) {
+        // Increment the index for next refresh
+        incrementImageIndex(product.id);
+        toast({
+          title: "Image Updated",
+          description: `Product thumbnail updated (image ${(imageIndex % result.links.length) + 1} of ${result.links.length})`,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: updateResult.error || "Failed to update product image",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to fetch images",
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshingProducts((prev) => {
+        const next = new Set(prev);
+        next.delete(product.id);
+        return next;
+      });
+    }
+  };
+
+  const handleRefreshVariationImage = async (product: Product, variation: any) => {
+    if (!product.name.trim()) {
+      toast({
+        title: "Error",
+        description: "Product name is required to generate images.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const variationKey = `${product.id}-${variation.id || variation.name}`;
+    setRefreshingVariations((prev) => new Set(prev).add(variationKey));
+
+    try {
+      // Extract variation name (remove product name prefix if present)
+      // Variation name format might be "Product Name - Variation" or just "Variation"
+      let variationName = variation.name || "";
+      if (variationName.includes(' - ')) {
+        // Split and take the part after " - "
+        variationName = variationName.split(' - ').slice(1).join(' - ').trim();
+      }
+      
+      // Use product name and variation name separately
+      const imageIndex = getImageIndex(product.id, variation.id || variation.name);
+      const result = await searchGoogleImages(product.name, variationName || undefined);
+      
+      if (result.links.length === 0) {
+        toast({
+          title: "No Images Found",
+          description: "No images found for this variation.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get the image at the current index (cycles through 0-9)
+      const selectedImage = result.links[imageIndex % result.links.length];
+      
+      // Parse existing variations
+      let variations: any[] = [];
+      if (product.variations) {
+        if (Array.isArray(product.variations)) {
+          variations = product.variations;
+        } else if (typeof product.variations === 'string') {
+          try {
+            variations = JSON.parse(product.variations);
+          } catch {
+            variations = [];
+          }
+        }
+      }
+
+      // Update the variation's image_url
+      const updatedVariations = variations.map((v: any) => {
+        if ((v.id && v.id === variation.id) || (v.name && v.name === variation.name)) {
+          return { ...v, image_url: selectedImage };
+        }
+        return v;
+      });
+
+      // Update the product with updated variations
+      const updateResult = await updateProduct(product.id, {
+        variations: JSON.stringify(updatedVariations),
+      });
+
+      if (updateResult.success) {
+        // Increment the index for next refresh
+        incrementImageIndex(product.id, variation.id || variation.name);
+        toast({
+          title: "Image Updated",
+          description: `Variation thumbnail updated (image ${(imageIndex % result.links.length) + 1} of ${result.links.length})`,
+        });
+        await refreshProducts();
+      } else {
+        toast({
+          title: "Error",
+          description: updateResult.error || "Failed to update variation image",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to fetch images",
+        variant: "destructive",
+      });
+    } finally {
+      setRefreshingVariations((prev) => {
+        const next = new Set(prev);
+        next.delete(variationKey);
+        return next;
+      });
+    }
+  };
+
   const handleEdit = async (product: Product) => {
     setEditingId(product.id);
     setEditName(product.name);
@@ -301,7 +466,7 @@ export default function ProductManagement() {
             const updatedCategories = await getAllCategoriesAsync();
             setAllCategories(updatedCategories);
           } catch (error) {
-            console.error("Error ensuring category exists:", error);
+            logger.error("Error ensuring category exists:", error);
           }
         }
       });
@@ -367,7 +532,7 @@ export default function ProductManagement() {
         setAvailableSuppliers(result.data);
       }
     } catch (error) {
-      console.error("Error loading suppliers:", error);
+      logger.error("Error loading suppliers:", error);
     } finally {
       setIsLoadingSuppliers(false);
     }
@@ -1238,8 +1403,29 @@ export default function ProductManagement() {
                   value={newImageUrl}
                   onChange={(e) => setNewImageUrl(e.target.value)}
                   placeholder="Image URL or base64 data (optional)"
-                  className="w-full pl-10 pr-4 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="w-full pl-10 pr-24 py-2 bg-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!newName.trim()) {
+                      toast({
+                        title: "Product Name Required",
+                        description: "Please enter a product name first to generate images.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    setShowImageGenerator(true);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-7 px-2 text-xs"
+                  title="Generate image from Google Images"
+                >
+                  <Sparkles className="w-3 h-3 mr-1" />
+                  Generate
+                </Button>
                 <p className="text-xs text-muted-foreground mt-1 ml-10">
                   Supports: https://... or data:image/...;base64,...
                 </p>
@@ -1496,20 +1682,36 @@ export default function ProductManagement() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-3">
-                                  {product.image_url ? (
-                                    <img
-                                      src={product.image_url}
-                                      alt={product.name}
-                                      className="w-10 h-10 object-cover rounded-lg"
-                                      onError={(e) =>
-                                        (e.currentTarget.style.display = "none")
-                                      }
-                                    />
-                                  ) : (
-                                    <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
-                                      <Package className="w-5 h-5 text-muted-foreground/50" />
-                                    </div>
-                                  )}
+                                  <div className="relative">
+                                    {product.image_url ? (
+                                      <img
+                                        src={product.image_url}
+                                        alt={product.name}
+                                        className="w-10 h-10 object-cover rounded-lg"
+                                        onError={(e) =>
+                                          (e.currentTarget.style.display = "none")
+                                        }
+                                      />
+                                    ) : (
+                                      <div className="w-10 h-10 bg-secondary rounded-lg flex items-center justify-center">
+                                        <Package className="w-5 h-5 text-muted-foreground/50" />
+                                      </div>
+                                    )}
+                                    {!product.image_url && (
+                                      <button
+                                        onClick={() => handleRefreshProductImage(product)}
+                                        disabled={refreshingProducts.has(product.id) || !isOnline}
+                                        className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-primary-foreground rounded-full flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                                        title="Refresh thumbnail"
+                                      >
+                                        {refreshingProducts.has(product.id) ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <RefreshCw className="w-3 h-3" />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
                                   <span className="font-medium text-foreground">
                                     {product.name}
                                   </span>
@@ -1553,24 +1755,67 @@ export default function ProductManagement() {
                                       if (validVariations.length > 0) {
                                         return (
                                           <div className="flex flex-col gap-1">
-                                            {validVariations.map((variation, idx) => (
-                                              <div 
-                                                key={variation.id || idx}
-                                                className="flex items-center gap-2 group"
-                                              >
-                                                <span className="text-xs text-muted-foreground font-mono">
-                                                  {variation.name ? `${variation.name}: ` : ''}₱{variation.price.toFixed(2)}
-                                                </span>
-                                                <button
-                                                  onClick={() => setEditingVariation({ product, variation })}
-                                                  disabled={!isOnline}
-                                                  className="opacity-0 group-hover:opacity-100 p-1 rounded bg-info/20 hover:bg-info/30 text-info disabled:opacity-30 transition-all"
-                                                  title="Edit variation"
+                                            {validVariations.map((variation, idx) => {
+                                              const variationKey = `${product.id}-${variation.id || variation.name}`;
+                                              const hasImage = variation.image_url || product.image_url;
+                                              return (
+                                                <div 
+                                                  key={variation.id || idx}
+                                                  className="flex items-center gap-2 group"
                                                 >
-                                                  <Edit className="w-3 h-3" />
-                                                </button>
-                                              </div>
-                                            ))}
+                                                  <div className="relative">
+                                                    {variation.image_url ? (
+                                                      <img
+                                                        src={variation.image_url}
+                                                        alt={variation.name || product.name}
+                                                        className="w-6 h-6 object-cover rounded"
+                                                        onError={(e) =>
+                                                          (e.currentTarget.style.display = "none")
+                                                        }
+                                                      />
+                                                    ) : product.image_url ? (
+                                                      <img
+                                                        src={product.image_url}
+                                                        alt={product.name}
+                                                        className="w-6 h-6 object-cover rounded opacity-50"
+                                                        onError={(e) =>
+                                                          (e.currentTarget.style.display = "none")
+                                                        }
+                                                      />
+                                                    ) : (
+                                                      <div className="w-6 h-6 bg-secondary rounded flex items-center justify-center">
+                                                        <Package className="w-3 h-3 text-muted-foreground/50" />
+                                                      </div>
+                                                    )}
+                                                    {!hasImage && (
+                                                      <button
+                                                        onClick={() => handleRefreshVariationImage(product, variation)}
+                                                        disabled={refreshingVariations.has(variationKey) || !isOnline}
+                                                        className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground rounded-full flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                                                        title="Refresh variation thumbnail"
+                                                      >
+                                                        {refreshingVariations.has(variationKey) ? (
+                                                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                                        ) : (
+                                                          <RefreshCw className="w-2.5 h-2.5" />
+                                                        )}
+                                                      </button>
+                                                    )}
+                                                  </div>
+                                                  <span className="text-xs text-muted-foreground font-mono">
+                                                    {variation.name ? `${variation.name}: ` : ''}₱{variation.price.toFixed(2)}
+                                                  </span>
+                                                  <button
+                                                    onClick={() => setEditingVariation({ product, variation })}
+                                                    disabled={!isOnline}
+                                                    className="opacity-0 group-hover:opacity-100 p-1 rounded bg-info/20 hover:bg-info/30 text-info disabled:opacity-30 transition-all"
+                                                    title="Edit variation"
+                                                  >
+                                                    <Edit className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
                                         );
                                       }
@@ -2147,7 +2392,7 @@ export default function ProductManagement() {
       {variationProduct && (
         <AddProductVariationDialog
           product={variationProduct}
-          onConfirm={async (price, variationName, stockQuantity) => {
+          onConfirm={async (price, variationName, stockQuantity, imageUrl) => {
             // Get existing variations or create empty array
             // Parse variations if it's a string (from database)
             let existingVariations: any[] = [];
@@ -2192,6 +2437,7 @@ export default function ProductManagement() {
               name: variationName,
               price: price,
               stock_quantity: stockQuantity || 0,
+              image_url: imageUrl,
             };
             
             // Add new variation to the list
@@ -2227,7 +2473,7 @@ export default function ProductManagement() {
         <EditVariationDialog
           productName={editingVariation.product.name}
           variation={editingVariation.variation}
-          onConfirm={async (variationId, newPrice, newName, suppliers) => {
+          onConfirm={async (variationId, newPrice, newName, suppliers, imageUrl) => {
             try {
               // Get existing variations
               const existingVariations = (() => {
@@ -2276,6 +2522,7 @@ export default function ProductManagement() {
                     price: newPrice,
                     name: finalName,
                     suppliers: suppliers || undefined,
+                    image_url: imageUrl,
                   };
                 }
                 return v;
@@ -2325,6 +2572,17 @@ export default function ProductManagement() {
       <CategoryManagementDialog
         open={showCategoryManagement}
         onOpenChange={setShowCategoryManagement}
+      />
+
+      {/* Image Generator Dialog */}
+      <ImageGeneratorDialog
+        open={showImageGenerator}
+        onClose={() => setShowImageGenerator(false)}
+        onSelectImage={(imageUrl) => {
+          setNewImageUrl(imageUrl);
+          setShowImageGenerator(false);
+        }}
+        productName={newName.trim()}
       />
 
     </div>

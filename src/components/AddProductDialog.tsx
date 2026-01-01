@@ -67,21 +67,21 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background animate-fade-in">
       <div
-        className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col"
+        className="glass-panel p-4 sm:p-6 w-full h-full max-w-xl max-h-screen overflow-y-auto animate-scale-in flex flex-col"
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-warning/20 rounded-lg">
+            <div className="p-2 bg-warning/20">
               <Package className="w-5 h-5 text-warning" />
             </div>
             <h2 className="text-xl font-semibold text-foreground">New Product</h2>
           </div>
           <button
             onClick={onCancel}
-            className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            className="p-2 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -97,7 +97,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full px-4 py-3 bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               placeholder="Enter product name"
             />
           </div>
@@ -113,7 +113,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                   value={newCategory}
                   onChange={(e) => setNewCategory(e.target.value)}
                   placeholder="Enter new category"
-                  className="flex-1 px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="flex-1 px-4 py-3 bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && newCategory.trim()) {
@@ -189,7 +189,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="flex-1 px-4 py-3 bg-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="flex-1 px-4 py-3 bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   {allCategories.map((cat) => (
                     <option key={cat} value={cat}>
@@ -231,7 +231,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                       onCancel();
                     }
                   }}
-                  className="w-full pl-7 pr-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="w-full pl-7 pr-3 py-3 bg-input text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="0.00 (optional)"
                 />
               </div>
@@ -252,7 +252,7 @@ export function AddProductDialog({ productName, onConfirm, onCancel }: AddProduc
                     onCancel();
                   }
                 }}
-                className="w-full px-3 py-3 bg-input rounded-lg text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                className="w-full px-3 py-3 bg-input text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 placeholder="0"
               />
             </div>

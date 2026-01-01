@@ -382,6 +382,62 @@ export function useGCashFunds() {
     );
   }, [credits, cash, saveTransaction]);
 
+  // Deduct from GCash Credits only (for service charge deduction)
+  const deductFromCredits = useCallback(async (
+    amount: number,
+    notes?: string
+  ) => {
+    if (amount <= 0) return { success: false, error: "Amount must be greater than 0" };
+    
+    // Deduct from Credits only, no change to Cash
+    const newCreditsBalance = credits - amount;
+    const newCashBalance = cash; // Cash balance unchanged
+    
+    return await saveTransaction(
+      "add-credits", // Using add-credits type but with negative amount logic
+      amount,
+      newCreditsBalance,
+      newCashBalance,
+      0,
+      notes
+    );
+  }, [credits, cash, saveTransaction]);
+
+  // Process Load transaction: Deduct from credits, add to cash
+  const processLoad = useCallback(async (
+    loadAmount: number,
+    gcashFee: number,
+    transactionFee: number,
+    totalCustomerPays: number,
+    mobileNumber?: string,
+    notes?: string
+  ) => {
+    if (loadAmount <= 0) return { success: false, error: "Load amount must be greater than 0" };
+    
+    // Deduct from Credits: load amount + GCash fee
+    const creditsDeduction = loadAmount + gcashFee;
+    const newCreditsBalance = credits - creditsDeduction;
+    
+    // Add to Cash: customer pays (load amount + GCash fee + transaction fee)
+    const newCashBalance = cash + totalCustomerPays;
+    
+    // Combine notes
+    const combinedNotes = `Load: ₱${loadAmount.toFixed(2)}${gcashFee > 0 ? ` + GCash Fee: ₱${gcashFee.toFixed(2)}` : ''} + Transaction Fee: ₱${transactionFee.toFixed(2)}${mobileNumber ? ` | Mobile: ${mobileNumber}` : ''}${notes ? ` | ${notes}` : ''}`;
+    
+    // Use add-cash type but record the full transaction details in notes
+    // The amount recorded is the total customer payment (cash addition)
+    // Credits deduction is reflected in the balance difference
+    return await saveTransaction(
+      "add-cash",
+      totalCustomerPays,
+      newCreditsBalance,
+      newCashBalance,
+      transactionFee, // Store transaction fee in service_charge field
+      combinedNotes,
+      mobileNumber
+    );
+  }, [credits, cash, saveTransaction]);
+
   // Refresh funds and history from MySQL
   const refresh = useCallback(async () => {
     try {
@@ -431,6 +487,8 @@ export function useGCashFunds() {
     addFunds,
     processGCashIn,
     processGCashOut,
+    deductFromCredits,
+    processLoad,
     refresh,
   };
 }

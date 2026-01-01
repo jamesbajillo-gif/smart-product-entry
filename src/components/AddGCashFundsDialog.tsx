@@ -54,11 +54,11 @@ export function AddGCashFundsDialog({ currentCreditsBalance, currentCashBalance,
   const quickAmounts = [100, 500, 1000, 2000, 5000, 10000];
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
-      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col">
+    <div className="fixed inset-0 bg-background z-50 flex items-center justify-center animate-fade-in">
+      <div className="glass-panel p-4 sm:p-6 w-full h-full max-w-xl max-h-screen overflow-y-auto animate-scale-in flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-lg">
+            <div className="p-2 bg-primary/20">
               <Plus className="w-5 h-5 text-primary" />
             </div>
             <div>
@@ -82,7 +82,7 @@ export function AddGCashFundsDialog({ currentCreditsBalance, currentCashBalance,
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setFundType("credits")}
-              className={`px-4 py-3 rounded-lg border-2 transition-all ${
+              className={`px-4 py-3 border-2 transition-all ${
                 fundType === "credits"
                   ? "bg-primary/20 border-primary text-primary font-medium"
                   : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary"
@@ -93,7 +93,7 @@ export function AddGCashFundsDialog({ currentCreditsBalance, currentCashBalance,
             </button>
             <button
               onClick={() => setFundType("cash")}
-              className={`px-4 py-3 rounded-lg border-2 transition-all ${
+              className={`px-4 py-3 border-2 transition-all ${
                 fundType === "cash"
                   ? "bg-warning/20 border-warning text-warning font-medium"
                   : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary"

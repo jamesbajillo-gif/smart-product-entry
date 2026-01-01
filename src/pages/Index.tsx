@@ -4,10 +4,14 @@ import { Product, OrderItem, ProductCategory } from "@/types/product";
 import { OrderSidebar } from "@/components/OrderSidebar";
 import { ProductSearch } from "@/components/ProductSearch";
 import { AddProductDialog } from "@/components/AddProductDialog";
+import { AddProductVariationDialog } from "@/components/AddProductVariationDialog";
 import { PaymentDialog, PaymentDetails } from "@/components/PaymentDialog";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
+import { ChangeDialog } from "@/components/ChangeDialog";
 import { GCashTransactionDialog, GCashTransactionDetails } from "@/components/GCashTransactionDialog";
+import { LoadTransactionDialog, LoadTransactionDetails } from "@/components/LoadTransactionDialog";
 import { AddGCashFundsDialog } from "@/components/AddGCashFundsDialog";
+import { isLoadProduct } from "@/utils/loadService";
 import { GCashTransactionsDialog } from "@/components/GCashTransactionsDialog";
 import { StoreFundsDialog } from "@/components/StoreFundsDialog";
 import { StoreFundsHistoryDialog } from "@/components/StoreFundsHistoryDialog";
@@ -20,15 +24,18 @@ import { useGCashFunds } from "@/hooks/useGCashFunds";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useSessionStorage } from "@/hooks/useSessionStorage";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { salesApi, SaleRecord, checkApiConnection } from "@/services/mysqlApi";
-import { Terminal, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3, CircleDot, Wallet, Settings, Plus, Calendar } from "lucide-react";
+import { logger } from "@/utils/logger";
+import { Terminal, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3, CircleDot, Wallet, Settings, Plus, Calendar, Truck, Zap } from "lucide-react";
 
 const Index = () => {
   const {
     products,
     addProduct,
+    updateProduct,
     recordSale,
     isOnline,
     isLoading,
@@ -39,6 +46,8 @@ const Index = () => {
   } = useMySQLSync();
 
   const [orderItems, setOrderItems] = useSessionStorage<OrderItem[]>("pos-order", []);
+  const [gcashEnabled, setGcashEnabled] = useLocalStorage<boolean>("pos-gcash-enabled", true);
+  const [showStockStatus] = useLocalStorage<boolean>("pos-show-stock-status", true);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -54,11 +63,13 @@ const Index = () => {
   const [receiptPayment, setReceiptPayment] = useState<PaymentDetails | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [showReceiptInCart, setShowReceiptInCart] = useState(false);
-  const [recentlyAddedItems, setRecentlyAddedItems] = useState<Array<{ product: Product; quantity: number; timestamp: number }>>([]);
+  const [showChangeDialog, setShowChangeDialog] = useState(false);
+  const [changeAmount, setChangeAmount] = useState(0);
   
   // Store recent transactions to prevent duplicates
   const recentTransactionsRef = useRef<Array<{ fingerprint: string; timestamp: number }>>([]);
   const [showGcashDialog, setShowGcashDialog] = useState(false);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [showAddFundsDialog, setShowAddFundsDialog] = useState(false);
   const [showGCashTransactionsDialog, setShowGCashTransactionsDialog] = useState(false);
   const [showStoreFundsDialog, setShowStoreFundsDialog] = useState(false);
@@ -68,13 +79,15 @@ const Index = () => {
   const [showCandiesPromoDialog, setShowCandiesPromoDialog] = useState(false);
   const [candiesPromoProduct, setCandiesPromoProduct] = useState<Product | null>(null);
   const [gcashProduct, setGcashProduct] = useState<Product | null>(null);
+  const [initialGcashTransactionType, setInitialGcashTransactionType] = useState<'gcash-in' | 'gcash-out' | undefined>(undefined);
   const [showServiceDialog, setShowServiceDialog] = useState(false);
   const [serviceProduct, setServiceProduct] = useState<Product | null>(null);
+  const [variationProduct, setVariationProduct] = useState<Product | null>(null);
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(false);
   const { toast } = useToast();
   // GCash Funds: Credits (wallet balance) and Cash (actual cash from transactions)
-  const { credits: gcashCredits, cash: gcashCash, funds: gcashFunds, history: gcashHistory, addFunds, processGCashIn, processGCashOut } = useGCashFunds();
+  const { credits: gcashCredits, cash: gcashCash, funds: gcashFunds, history: gcashHistory, addFunds, processGCashIn, processGCashOut, deductFromCredits, processLoad } = useGCashFunds();
   const { funds: storeFunds, history: storeFundsHistory, addFunds: addStoreFunds, withdrawFunds: withdrawStoreFunds, refresh: refreshStoreFunds } = useStoreFunds();
 
   // Track the last modified product ID for keyboard shortcuts
@@ -135,7 +148,7 @@ const Index = () => {
         setSales(result.data);
       }
     } catch (error) {
-      console.error("Error loading sales:", error);
+      logger.error("Error loading sales:", error);
     } finally {
       setIsLoadingSales(false);
     }
@@ -186,7 +199,7 @@ const Index = () => {
         refreshStoreFunds(),
       ]);
     } catch (error) {
-      console.error("Error updating data on search:", error);
+      logger.error("Error updating data on search:", error);
     }
   }, [isOnline, refreshProducts, loadSales, refreshStoreFunds]);
 
@@ -347,7 +360,7 @@ const Index = () => {
           }
         });
       } catch (error) {
-        console.error("Error parsing sale items:", error);
+        logger.error("Error parsing sale items:", error);
       }
     });
     
@@ -419,7 +432,7 @@ const Index = () => {
     
     // Debug logging (remove in production if needed)
     if (gcashInCount > 0 || gcashOutCount > 0) {
-      console.log("GCASH-MONEY Calculation:", {
+      logger.log("GCASH-MONEY Calculation:", {
         total: calculatedTotal,
         formula: `(GCASH-IN: ₱${totalCashIns.toFixed(2)} + Service Fees: ₱${totalFees.toFixed(2)}) - GCASH-OUT: ₱${totalCashOuts.toFixed(2)} = ₱${calculatedTotal.toFixed(2)}`,
         gcashInCount,
@@ -466,6 +479,13 @@ const Index = () => {
     if (gcash) {
       productCounts[gcash.id] = { product: gcash, count: 999999 }; // High priority
     }
+    
+    // Initialize with Load (always second, right after GCash)
+    const load = products.find(p => isLoadProduct(p));
+    
+    if (load && gcashEnabled) {
+      productCounts[load.id] = { product: load, count: 999998 }; // High priority, second to GCash
+    }
 
     // Count sales for each product
     sales.forEach((sale) => {
@@ -483,7 +503,7 @@ const Index = () => {
       });
     });
 
-    // Sort by count and return top products (excluding GCASH from count-based sorting)
+    // Sort by count and return top products (excluding GCASH and Load from count-based sorting)
     const sorted = Object.values(productCounts)
       .filter(item => item.product !== null)
       .sort((a, b) => {
@@ -492,6 +512,13 @@ const Index = () => {
         const bIsGcash = b.product?.name.toUpperCase() === "GCASH" || b.product?.name.toUpperCase() === "GCASH SERVICE";
         if (aIsGcash) return -1;
         if (bIsGcash) return 1;
+        
+        // Load always second (right after GCash)
+        const aIsLoad = a.product ? isLoadProduct(a.product) : false;
+        const bIsLoad = b.product ? isLoadProduct(b.product) : false;
+        if (aIsLoad) return -1;
+        if (bIsLoad) return 1;
+        
         return b.count - a.count;
       })
       .slice(0, 12) // Show top 12 products
@@ -499,7 +526,7 @@ const Index = () => {
       .filter(Boolean);
 
     return sorted;
-  }, [sales, products]);
+  }, [sales, products, gcashEnabled]);
 
   // Add product to cart (with or without qty dialog)
   const addToCart = useCallback((product: Product, quantity: number, customPrice?: number, selectedServices?: ProductService[]) => {
@@ -536,11 +563,6 @@ const Index = () => {
         if (customPrice !== undefined && updated[existingIndex].product.price !== customPrice) {
           // Track the last added product
           lastModifiedProductIdRef.current = productToAdd.id;
-          // Add to recently added items for status bar
-          setRecentlyAddedItems((prevItems) => [
-            ...prevItems,
-            { product: productToAdd, quantity, timestamp: Date.now() }
-          ]);
           return [...prev, { product: productToAdd, quantity, selectedServices }];
         }
         updated[existingIndex] = {
@@ -549,32 +571,103 @@ const Index = () => {
         };
         // Track the last modified product
         lastModifiedProductIdRef.current = productToAdd.id;
-        // Add to recently added items for status bar
-        setRecentlyAddedItems((prevItems) => [
-          ...prevItems,
-          { product: productToAdd, quantity, timestamp: Date.now() }
-        ]);
         return updated;
       }
 
       // Track the last added product
       lastModifiedProductIdRef.current = productToAdd.id;
-      // Add to recently added items for status bar
-      setRecentlyAddedItems((prevItems) => [
-        ...prevItems,
-        { product: productToAdd, quantity, timestamp: Date.now() }
-      ]);
       return [...prev, { product: productToAdd, quantity, selectedServices }];
     });
-  }, [setOrderItems]);
+  }, [setOrderItems, showReceiptInCart, setShowReceiptInCart, setReceiptItems, setReceiptPayment]);
 
   const handleProductSelect = useCallback((product: Product) => {
-    // Check if it's GCASH product
-    const isGcash = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
+    // Normalize product name for comparison
+    const productNameUpper = product.name.toUpperCase().trim();
+    
+    // Check if it's GCash-In or GCash-Out service (including hardcoded variations)
+    const isGcashIn = product.id === 'gcash-in-service' || 
+                      product.id.includes('gcash-in-hardcoded') ||
+                      productNameUpper === 'GCASH-IN' ||
+                      productNameUpper.includes('GCASH-IN') ||
+                      productNameUpper.includes('GCASH - GCASH-IN');
+    const isGcashOut = product.id === 'gcash-out-service' || 
+                       product.id.includes('gcash-out-hardcoded') ||
+                       productNameUpper === 'GCASH-OUT' ||
+                       productNameUpper.includes('GCASH-OUT') ||
+                       productNameUpper.includes('GCASH - GCASH-OUT');
+    
+    if (isGcashIn || isGcashOut) {
+      // Only allow GCash transaction if GCash is enabled
+      if (!gcashEnabled) {
+        toast({
+          title: "GCash Disabled",
+          description: "GCash transactions are currently disabled. Please enable it in Settings.",
+          variant: "destructive",
+        });
+        setSearchQuery("");
+        return;
+      }
+      // Find the base GCash product
+      const baseGcashProduct = products.find(p => {
+        const pName = p.name.toUpperCase().trim();
+        return pName === "GCASH" || pName === "GCASH SERVICE";
+      });
+      
+      if (!baseGcashProduct) {
+        toast({
+          title: "GCash Product Not Found",
+          description: "Please ensure a GCash product exists in your inventory.",
+          variant: "destructive",
+        });
+        setSearchQuery("");
+        return;
+      }
+      
+      // Create a GCash product with the transaction type
+      const gcashServiceProduct: Product = {
+        ...baseGcashProduct,
+        name: isGcashIn ? 'GCash-In' : 'GCash-Out',
+      };
+      setGcashProduct(gcashServiceProduct);
+      setShowGcashDialog(true);
+      setInitialGcashTransactionType(isGcashIn ? 'gcash-in' : 'gcash-out');
+      setSearchQuery("");
+      return;
+    }
+    
+    // Check if it's GCASH product (base product, not a variation)
+    // First check by name, then verify it exists in products list
+    const isGcashByName = productNameUpper === "GCASH" || 
+                              productNameUpper === "GCASH SERVICE" ||
+                              (productNameUpper.startsWith("GCASH") && 
+                               !productNameUpper.includes("GCASH-IN") && 
+                               !productNameUpper.includes("GCASH-OUT"));
+    
+    // Also check if this product ID matches a GCash product in our products list
+    const matchingGcashProduct = products.find(p => {
+      const pName = p.name.toUpperCase().trim();
+      return (p.id === product.id || pName === productNameUpper) && 
+             (pName === "GCASH" || pName === "GCASH SERVICE");
+    });
+    
+    const isGcash = isGcashByName || !!matchingGcashProduct;
     
     if (isGcash) {
-      setGcashProduct(product);
+      // Only allow GCash product selection if GCash is enabled
+      if (!gcashEnabled) {
+        toast({
+          title: "GCash Disabled",
+          description: "GCash transactions are currently disabled. Please enable it in Settings.",
+          variant: "destructive",
+        });
+        setSearchQuery("");
+        return;
+      }
+      // Use the matching product from our list if found, otherwise use the passed product
+      const gcashProductToUse = matchingGcashProduct || product;
+      setGcashProduct(gcashProductToUse);
       setShowGcashDialog(true);
+      setInitialGcashTransactionType(undefined); // Let user choose in dialog
       setSearchQuery("");
       return;
     }
@@ -584,6 +677,23 @@ const Index = () => {
     if (hasServices) {
       setServiceProduct(product);
       setShowServiceDialog(true);
+      setSearchQuery("");
+      return;
+    }
+    
+    // Check if it's Load product
+    if (isLoadProduct(product)) {
+      // Only allow Load transaction if GCash is enabled
+      if (!gcashEnabled) {
+        toast({
+          title: "GCash Disabled",
+          description: "GCash transactions are currently disabled. Please enable it in Settings.",
+          variant: "destructive",
+        });
+        setSearchQuery("");
+        return;
+      }
+      setShowLoadDialog(true);
       setSearchQuery("");
       return;
     }
@@ -615,12 +725,120 @@ const Index = () => {
         cartSidebar.focus();
       }
     });
-  }, [addToCart, toast]);
+  }, [addToCart, toast, gcashEnabled, products]);
 
   const handleAddNewProduct = useCallback((name: string) => {
     setNewProductName(name);
     setSearchQuery("");
   }, []);
+
+  const handleAddVariation = useCallback((product: Product) => {
+    setVariationProduct(product);
+    setSearchQuery("");
+  }, []);
+
+  const handleVariationConfirm = useCallback(async (price: number, variationName: string, stockQuantity: number, imageUrl?: string) => {
+    if (!variationProduct) return;
+
+    // Get existing variations or create empty array
+    let existingVariations: any[] = [];
+    if (variationProduct.variations) {
+      if (Array.isArray(variationProduct.variations)) {
+        existingVariations = variationProduct.variations;
+      } else if (typeof variationProduct.variations === 'string') {
+        try {
+          existingVariations = JSON.parse(variationProduct.variations);
+        } catch (e) {
+          console.error("Error parsing variations:", e);
+          existingVariations = [];
+        }
+      }
+    }
+    
+    // Filter valid variations for duplicate checking
+    const validVariations = existingVariations.filter((v: any) => v && typeof v.price === 'number' && v.price > 0);
+    
+    // Check for duplicate: same name AND same price
+    const finalName = variationName.trim();
+    const duplicateExists = validVariations.some((v: any) => {
+      const vName = v.name ? v.name.trim() : '';
+      const vPrice = typeof v.price === 'number' ? v.price : 0;
+      // Compare names (case-insensitive) and prices (exact match with tolerance)
+      return vName.toLowerCase() === finalName.toLowerCase() && 
+             Math.abs(vPrice - price) < 0.01; // Allow for floating point precision
+    });
+    
+    if (duplicateExists) {
+      toast({
+        title: "Duplicate Variation",
+        description: "A variation with this name and price already exists. Use a different name or price.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Create new variation with unique ID
+    const variationId = `var-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newVariation = {
+      id: variationId,
+      name: variationName,
+      price: price,
+      stock_quantity: stockQuantity || 0,
+      image_url: imageUrl,
+    };
+    
+    // Add new variation to the list
+    const updatedVariations = [...existingVariations, newVariation];
+    
+    // Store the product data before update for constructing the variation product
+    const baseProduct = variationProduct;
+    
+    // Update product with new variations (stored as JSON string)
+    const result = await updateProduct(variationProduct.id, {
+      variations: JSON.stringify(updatedVariations),
+    });
+    
+    if (result.success) {
+      // Close dialog immediately
+      setVariationProduct(null);
+      
+      // Construct the variation product directly from the data we just created
+      // This avoids waiting for state updates and is more reliable
+      const variationProductToAdd: Product = {
+        ...baseProduct,
+        id: `${baseProduct.id}-${variationId}`,
+        name: baseProduct.name, // Keep base product name
+        price: newVariation.price,
+        stock_quantity: newVariation.stock_quantity,
+        // Variations are already updated in the base product via updateProduct
+        variations: updatedVariations,
+      };
+      
+      // Show success toast
+      toast({
+        title: "Variation Added",
+        description: `${variationName} - ₱${price.toFixed(2)} variation added successfully`,
+      });
+      
+      // Auto-select the newly created variation immediately
+      // Use requestAnimationFrame to ensure dialog is closed first
+      requestAnimationFrame(() => {
+        handleProductSelect(variationProductToAdd);
+      });
+      
+      // Refresh products in the background for consistency (don't wait for it)
+      refreshProducts().catch((error) => {
+        console.error("Error refreshing products after variation creation:", error);
+        // Non-critical error, don't show to user
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to add variation",
+        variant: "destructive",
+      });
+    }
+  }, [variationProduct, updateProduct, refreshProducts, handleProductSelect, toast]);
 
   const handleNewProductConfirm = useCallback(
     async (name: string, price: number | undefined, category?: string, stockQuantity?: number) => {
@@ -699,34 +917,12 @@ const Index = () => {
 
   const handleClearOrder = useCallback(() => {
     setOrderItems([]);
-    setRecentlyAddedItems([]); // Clear status bar when order is cleared
     lastModifiedProductIdRef.current = null; // Clear last modified product
     toast({
       title: "Order cleared",
       description: "All items have been removed",
     });
   }, [setOrderItems, toast]);
-
-  // Clear recently added items when cart opens
-  useEffect(() => {
-    if (cartOpen) {
-      setRecentlyAddedItems([]);
-    }
-  }, [cartOpen]);
-
-  // Auto-remove old items from status bar (after 5 seconds)
-  useEffect(() => {
-    if (recentlyAddedItems.length === 0) return;
-    
-    const interval = setInterval(() => {
-      const now = Date.now();
-      setRecentlyAddedItems((prev) => 
-        prev.filter((item) => now - item.timestamp < 5000)
-      );
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [recentlyAddedItems.length]);
 
   const handleCheckout = useCallback(() => {
     if (orderItems.length === 0) {
@@ -774,15 +970,62 @@ const Index = () => {
         return;
       }
 
-      // === SEARCH RESULTS NOT ACTIVE + CART HAS ITEMS ===
+      // === ENTER KEY HANDLING ===
+      // Skip if any input/textarea is focused (user might be typing elsewhere)
+      // Skip if receipt is showing
+      // Only handle Enter when search is NOT focused (ProductSearch handles it when focused)
+      if (e.key === 'Enter' && !isInputFocused && !showReceiptInCart && !isSearchFocused) {
+        e.preventDefault();
+        
+        // If cart is open and has items, trigger checkout
+        if (cartOpen && orderItems.length > 0) {
+          handleCheckout();
+          return;
+        }
+        
+        // If cart is not open, open cart
+        if (!cartOpen) {
+          setCartOpen(true);
+          return;
+        }
+        
+        // If cart is open but empty, do nothing
+        return;
+      }
+
+      // === CART HAS ITEMS (for other keys like Backspace, Arrow keys) ===
       // Skip if any input/textarea is focused (user might be typing elsewhere)
       // Skip if receipt is showing (orderItems will be empty, but check explicitly for clarity)
       if (orderItems.length > 0 && !isInputFocused && !showReceiptInCart) {
-        // ENTER: Checkout
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          handleCheckout();
-          return;
+
+        // BACKSPACE: Decrease quantity of last added item, remove if reaches zero
+        if (e.key === 'Backspace') {
+          const lastProductId = lastModifiedProductIdRef.current;
+          if (lastProductId) {
+            const lastItem = orderItems.find(item => item.product.id === lastProductId);
+            if (lastItem) {
+              e.preventDefault();
+              const newQuantity = lastItem.quantity - 1;
+              
+              if (newQuantity <= 0) {
+                // Remove item from cart
+                handleRemoveItem(lastProductId);
+                
+                // Update lastModifiedProductIdRef to the previous item, or clear if no items remain
+                const remainingItems = orderItems.filter(item => item.product.id !== lastProductId);
+                if (remainingItems.length > 0) {
+                  // Set to the last item in the remaining items (most recently added)
+                  lastModifiedProductIdRef.current = remainingItems[remainingItems.length - 1].product.id;
+                } else {
+                  lastModifiedProductIdRef.current = null;
+                }
+              } else {
+                // Decrease quantity
+                handleUpdateQuantity(lastProductId, newQuantity);
+              }
+              return;
+            }
+          }
         }
 
         // UP/DOWN: Adjust quantity of last added item
@@ -827,7 +1070,7 @@ const Index = () => {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [cartOpen, showReceiptInCart, orderItems, handleCheckout, handleUpdateQuantity]);
+  }, [cartOpen, showReceiptInCart, orderItems, handleCheckout, handleUpdateQuantity, handleRemoveItem]);
 
   // Generate transaction fingerprint (hash of items + total)
   const generateTransactionFingerprint = useCallback((items: OrderItem[], total: number): string => {
@@ -922,9 +1165,8 @@ const Index = () => {
     setReceiptItems(itemsToReceipt);
     setReceiptPayment(paymentToReceipt);
     
-    // Clear cart items and status bar
+    // Clear cart items
     setOrderItems([]);
-    setRecentlyAddedItems([]);
     
     // Reset all transaction-related states
     lastModifiedProductIdRef.current = null; // Clear last modified product
@@ -935,13 +1177,23 @@ const Index = () => {
       searchInputRef.current.blur();
     }
     
-    // Open cart first, then show receipt (ensures smooth flip animation)
-    setCartOpen(true);
-    
-    // Use requestAnimationFrame to ensure DOM is ready before flipping
-    requestAnimationFrame(() => {
-    setShowReceiptInCart(true);
-    });
+    // Check if there's change to display
+    if (details.method === "cash" && details.change !== undefined && details.change > 0) {
+      // Show change dialog first - ensure cart and receipt are not shown yet
+      setCartOpen(false);
+      setShowReceiptInCart(false);
+      setChangeAmount(details.change);
+      // Use requestAnimationFrame to ensure state updates properly
+      requestAnimationFrame(() => {
+        setShowChangeDialog(true);
+      });
+    } else {
+      // No change, go directly to receipt
+      setCartOpen(true);
+      requestAnimationFrame(() => {
+        setShowReceiptInCart(true);
+      });
+    }
     
     // Record sale to database in the background (non-blocking)
     recordSale(itemsToReceipt, paymentToReceipt)
@@ -975,7 +1227,16 @@ const Index = () => {
           console.error("Error refreshing data:", err);
         });
       });
-  }, [orderItems, recordSale, setOrderItems, toast, generateTransactionFingerprint, isDuplicateTransaction, recordRecentTransaction, loadSales]);
+  }, [orderItems, recordSale, setOrderItems, toast, generateTransactionFingerprint, isDuplicateTransaction, recordRecentTransaction, loadSales, refreshProducts, refreshStoreFunds]);
+
+  const handleChangeDialogClose = useCallback(() => {
+    setShowChangeDialog(false);
+    // Now show the receipt
+    setCartOpen(true);
+    requestAnimationFrame(() => {
+      setShowReceiptInCart(true);
+    });
+  }, []);
 
   const handlePaymentCancel = useCallback(() => {
     setShowPayment(false);
@@ -1016,7 +1277,7 @@ const Index = () => {
       if (details.deductServiceFeeFromGCash && serviceCharge > 0) {
         // Toggle ON: Customer pays only amount, service charge deducted from GCash credits
         // Process transaction: amount to cash, amount deducted from credits
-        fundResult = processGCashIn(details.amount, 0, details.gcashNumber, details.notes);
+        fundResult = await processGCashIn(details.amount, 0, details.gcashNumber, details.notes);
         if (!fundResult.success) {
           toast({
             title: "Transaction Failed",
@@ -1027,22 +1288,17 @@ const Index = () => {
         }
         
         // Deduct service charge from GCash Credits only (not added to cash)
-        // We need to adjust: deduct serviceCharge from credits, but don't add to cash
-        // Since processGCashIn always adds to cash, we'll use a workaround:
-        // Call processGCashIn then manually adjust cash balance back
-        const adjustmentResult = await processGCashIn(serviceCharge, 0, undefined, "Service fee deduction from credits");
+        const adjustmentResult = await deductFromCredits(serviceCharge, "Service fee deduction from credits");
         if (adjustmentResult.success && 'creditsBalance' in adjustmentResult && 'cashBalance' in adjustmentResult) {
-          // Undo the cash addition from the adjustment call
-          const correctedCashBalance = adjustmentResult.cashBalance - serviceCharge;
           fundResult = { 
             ...adjustmentResult, 
             creditsBalance: adjustmentResult.creditsBalance,
-            cashBalance: correctedCashBalance
+            cashBalance: fundResult.cashBalance // Keep the cash balance from the original transaction
           };
         }
       } else {
         // Toggle OFF: Customer pays amount + service charge, both added to cash
-        fundResult = processGCashIn(details.amount, serviceCharge, details.gcashNumber, details.notes);
+        fundResult = await processGCashIn(details.amount, serviceCharge, details.gcashNumber, details.notes);
         if (!fundResult.success) {
           toast({
             title: "Transaction Failed",
@@ -1082,8 +1338,8 @@ const Index = () => {
       if (details.deductServiceFeeFromGCash && serviceCharge > 0) {
         // Deduct service charge from GCash Credits (but it's already added to Cash as revenue)
         // This is a separate adjustment to credits balance
-        const adjustmentResult = await processGCashIn(serviceCharge, 0, undefined, "Service fee deduction from credits");
-        if (adjustmentResult.success && 'creditsBalance' in adjustmentResult) {
+        const adjustmentResult = await deductFromCredits(serviceCharge, "Service fee deduction from credits");
+        if (adjustmentResult.success && 'creditsBalance' in adjustmentResult && 'cashBalance' in adjustmentResult) {
           fundResult = { 
             ...adjustmentResult, 
             creditsBalance: adjustmentResult.creditsBalance,
@@ -1169,6 +1425,49 @@ const Index = () => {
     });
   }, [gcashProduct, processGCashIn, processGCashOut, toast, loadSales]);
 
+  const handleLoadTransaction = useCallback(async (details: LoadTransactionDetails) => {
+    // Process load as a single integrated GCash transaction
+    // Deducts from credits (load amount + GCash fee) and adds to cash (total customer payment)
+    const result = await processLoad(
+      details.loadAmount,
+      details.gcashFee,
+      details.transactionFee,
+      details.totalCustomerPays,
+      details.mobileNumber,
+      details.notes
+    );
+    
+    if (!result.success) {
+      toast({
+        title: "Transaction Failed",
+        description: result.error || "Failed to process load transaction",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Show warning if credits balance goes negative
+    if (result.creditsBalance && result.creditsBalance < 0) {
+      toast({
+        title: "Transaction Processed",
+        description: `GCash Credits is now negative: ₱${result.creditsBalance.toFixed(2)}`,
+        variant: "default",
+      });
+    }
+    
+    setShowLoadDialog(false);
+    setSearchQuery("");
+    
+    const feeText = details.gcashFee > 0 
+      ? ` | Transaction Fee: ₱${details.transactionFee.toFixed(2)} | GCash Fee: ₱${details.gcashFee.toFixed(2)}`
+      : ` | Transaction Fee: ₱${details.transactionFee.toFixed(2)}`;
+    
+    toast({
+      title: "Load Transaction Recorded",
+      description: `Load: ₱${details.loadAmount.toFixed(2)}${feeText} | Customer Pays: ₱${details.totalCustomerPays.toFixed(2)} | Credits: ₱${result.creditsBalance.toFixed(2)} | Cash: ₱${result.cashBalance.toFixed(2)}`,
+    });
+  }, [processLoad, toast]);
+
   const handleAddFunds = useCallback(async (amount: number, fundType: "credits" | "cash", notes?: string) => {
     const result = await addFunds(amount, fundType, notes);
     if (result.success) {
@@ -1192,25 +1491,25 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen w-full h-screen bg-background flex flex-col">
       {/* Sticky Status Bar Header - Fixed at top, doesn't affect layout */}
-      <div className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border/50 h-10">
-        <div className="flex items-center justify-between gap-2 px-4 h-full text-sm">
+      <div className="fixed top-0 left-0 right-0 z-50 bg-card border-b border-border h-16">
+        <div className="flex items-center gap-2 px-2 h-full text-base overflow-hidden">
           {/* Left: Status Indicators */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-shrink min-w-0 h-full overflow-x-auto scrollbar-hide">
             {/* Date Display - Philippine Time with Online/Offline Indicator */}
-            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 border ${
+            <div className={`flex items-center gap-1.5 px-2 h-full shrink-0 border ${
               isOnline 
                 ? 'bg-success/20 border-success/30' 
                 : 'bg-destructive/20 border-destructive/30'
             }`}>
-              <Calendar className={`w-3 h-3 ${isOnline ? 'text-success' : 'text-destructive'}`} />
-              <span className={`text-xs font-medium hidden sm:inline ${
+              <Calendar className={`w-4 h-4 shrink-0 ${isOnline ? 'text-success' : 'text-destructive'}`} />
+              <span className={`text-sm font-medium hidden sm:inline whitespace-nowrap ${
                 isOnline ? 'text-success' : 'text-destructive'
               }`}>
                 {formattedDate}
               </span>
-              <span className={`text-xs font-mono font-medium ${
+              <span className={`text-sm font-mono font-medium whitespace-nowrap ${
                 isOnline ? 'text-success' : 'text-destructive'
               }`}>
                 {formattedTime}
@@ -1218,30 +1517,30 @@ const Index = () => {
             </div>
             
             {/* Today's Total Sales */}
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/10 border border-primary/20">
-              <Receipt className="w-3 h-3 text-primary" />
-              <span className="text-xs font-medium text-muted-foreground hidden sm:inline">Today:</span>
-              <span className="text-xs font-mono font-semibold text-primary">
+            <div className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-primary/10 border border-primary/20">
+              <Receipt className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-sm font-medium text-muted-foreground hidden sm:inline whitespace-nowrap">Today:</span>
+              <span className="text-sm font-mono font-semibold text-primary whitespace-nowrap">
                 ₱{todayTotalSales.toFixed(0)}
               </span>
             </div>
             
             {/* GCash Funds - Permanently Displayed */}
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/10 border border-primary/20">
-              <Smartphone className="w-3 h-3 text-primary" />
-              <span className="text-xs font-medium text-primary">GCash</span>
+            <div className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-primary/10 border border-primary/20">
+              <Smartphone className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-sm font-medium text-primary whitespace-nowrap">GCash</span>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setShowAddFundsDialog(true)}
-                  className={`text-xs font-mono font-semibold hover:opacity-80 transition-opacity ${gcashCredits < 0 ? 'text-destructive' : 'text-primary'}`}
+                  className={`text-sm font-mono font-semibold whitespace-nowrap ${gcashCredits < 0 ? 'text-destructive' : 'text-primary'}`}
                   title="Click to add GCash Credits"
                 >
                   C: ₱{gcashCredits.toFixed(0)}
                 </button>
-                <span className="text-xs text-muted-foreground">/</span>
+                <span className="text-sm text-muted-foreground">/</span>
                 <button
                   onClick={() => setShowGCashTransactionsDialog(true)}
-                  className="text-xs font-mono font-semibold text-warning hover:opacity-80 transition-opacity"
+                  className="text-sm font-mono font-semibold text-warning whitespace-nowrap"
                   title="Click to view GCash transactions"
                 >
                   $: ₱{gcashCash.toFixed(0)}
@@ -1249,45 +1548,57 @@ const Index = () => {
               </div>
             </div>
             
+            {/* Load Service - Next to GCash */}
+            {gcashEnabled && (
+              <button
+                onClick={() => setShowLoadDialog(true)}
+                className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-info/10 border border-info/20 hover:bg-info/20 transition-colors"
+                title="Load Transaction"
+              >
+                <Zap className="w-4 h-4 text-info shrink-0" />
+                <span className="text-sm font-medium text-info whitespace-nowrap">Load</span>
+              </button>
+            )}
+            
             {/* Pending Sales Count */}
             {pendingSalesCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-warning/20 border border-warning/30 text-warning">
-                <CloudOff className="w-3 h-3" />
-                <span className="text-xs font-medium">{pendingSalesCount} pending</span>
+              <div className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-warning/20 border border-warning/50 text-foreground">
+                <CloudOff className="w-4 h-4 shrink-0" />
+                <span className="text-sm font-medium whitespace-nowrap">{pendingSalesCount} pending</span>
               </div>
             )}
             
             {/* Syncing Indicator */}
             {isSyncing && (
-              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/20 border border-primary/30 text-primary">
-                <RefreshCw className="w-3 h-3 animate-spin" />
-                <span className="text-xs font-medium hidden sm:inline">Syncing...</span>
+              <div className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-secondary border border-border text-foreground">
+                <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                <span className="text-sm font-medium hidden sm:inline whitespace-nowrap">Syncing...</span>
               </div>
             )}
           </div>
           
           {/* Center: Action Buttons */}
-          <div className="flex items-center gap-1.5 shrink-0 absolute left-1/2 -translate-x-1/2">
+          <div className="flex items-center gap-1.5 shrink-0 h-full mx-auto">
             {/* GCASH-MONEY */}
             {gcashMoney > 0 && (
               <button
                 onClick={() => setShowGCashTransactionsDialog(true)}
-                className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-info/20 border border-info/30 text-info hover:bg-info/30 transition-colors"
+                className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-info/20 border border-info/50 text-foreground"
                 title={`GCASH-MONEY: ₱${gcashMoney.toFixed(2)}`}
               >
-                <TrendingUp className="w-3 h-3" />
-                <span className="text-xs font-mono font-semibold">₱{gcashMoney.toFixed(0)}</span>
+                <TrendingUp className="w-4 h-4 shrink-0" />
+                <span className="text-sm font-mono font-semibold whitespace-nowrap">₱{gcashMoney.toFixed(0)}</span>
               </button>
             )}
             
             {/* Store Funds */}
             <button
               onClick={() => setShowStoreFundsHistoryDialog(true)}
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-primary/20 border border-primary/30 text-primary hover:bg-primary/30 transition-colors"
+              className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-secondary border border-border text-foreground"
               title={`Store Funds: ₱${storeFunds.toFixed(2)}`}
             >
-              <Wallet className="w-3 h-3" />
-              <span className="text-xs font-mono font-semibold">₱{storeFunds.toFixed(0)}</span>
+              <Wallet className="w-4 h-4 shrink-0" />
+              <span className="text-sm font-mono font-semibold whitespace-nowrap">₱{storeFunds.toFixed(0)}</span>
             </button>
             
             {/* Pending sync */}
@@ -1295,7 +1606,7 @@ const Index = () => {
               <button
                 onClick={triggerSync}
                 disabled={isSyncing}
-                className={`flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 border transition-colors relative ${
+                className={`flex items-center gap-1.5 px-2 h-full shrink-0 border relative ${
                   isSyncing 
                     ? 'bg-muted border-muted text-muted-foreground' 
                     : 'bg-warning/20 border-warning/30 text-warning hover:bg-warning/30'
@@ -1303,53 +1614,65 @@ const Index = () => {
                 title={`${pendingSalesCount} pending sale(s) - Click to sync`}
               >
                 {isSyncing ? (
-                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
                 ) : (
-                  <CloudOff className="w-3 h-3" />
+                  <CloudOff className="w-4 h-4 shrink-0" />
                 )}
-                <span className="text-xs font-medium">{pendingSalesCount}</span>
+                <span className="text-sm font-medium whitespace-nowrap">{pendingSalesCount}</span>
               </button>
             )}
-            
-            {/* Navigation buttons */}
-            <Link to="/products" className="hidden sm:block">
-              <Button variant="ghost" size="icon" className="w-7 h-7" title="Products">
-                <Package className="w-3.5 h-3.5" />
+          </div>
+          
+          {/* Right: Navigation buttons */}
+          <div className="flex items-center gap-1 shrink-0 h-full">
+            <Link to="/products" className="hidden sm:block h-full">
+              <Button variant="ghost" size="icon" className="h-full w-10" title="Products">
+                <Package className="w-4 h-4" />
               </Button>
             </Link>
-            <Link to="/sales" className="hidden sm:block">
-              <Button variant="ghost" size="icon" className="w-7 h-7" title="Sales">
-                <Receipt className="w-3.5 h-3.5" />
+            <Link to="/inventory" className="hidden sm:block h-full">
+              <Button variant="ghost" size="icon" className="h-full w-10" title="Inventory">
+                <Truck className="w-4 h-4" />
+              </Button>
+            </Link>
+            <Link to="/sales" className="hidden sm:block h-full">
+              <Button variant="ghost" size="icon" className="h-full w-10" title="Sales">
+                <Receipt className="w-4 h-4" />
+              </Button>
+            </Link>
+            <Link to="/gcash" className="hidden sm:block h-full">
+              <Button variant="ghost" size="icon" className="h-full w-10" title="GCash Transactions">
+                <Smartphone className="w-4 h-4" />
               </Button>
             </Link>
             <Button 
               variant="ghost" 
               size="icon" 
-              className="w-7 h-7 hidden sm:flex"
+              className="h-full w-10 hidden sm:flex"
               onClick={() => setShowSalesLogDialog(true)}
               title="View sales transaction log"
             >
-              <BarChart3 className="w-3.5 h-3.5" />
+              <BarChart3 className="w-4 h-4" />
             </Button>
-            <Link to="/analytics" className="hidden sm:block">
-              <Button variant="ghost" size="icon" className="w-7 h-7" title="Analytics">
-                <BarChart3 className="w-3.5 h-3.5" />
+            <Link to="/analytics" className="hidden sm:block h-full">
+              <Button variant="ghost" size="icon" className="h-full w-10" title="Analytics">
+                <BarChart3 className="w-4 h-4" />
               </Button>
             </Link>
-            <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="icon" className="w-7 h-7" title="Settings">
-                <Settings className="w-3.5 h-3.5" />
+            <Link to="/settings" className="hidden sm:block h-full">
+              <Button variant="ghost" size="icon" className="h-full w-10" title="Settings">
+                <Settings className="w-4 h-4" />
               </Button>
             </Link>
             
             {/* Cart button - mobile only */}
             <button
               onClick={() => setCartOpen(true)}
-              className="relative p-1.5 bg-primary/20 rounded-lg lg:hidden shrink-0"
+              className="relative w-10 h-full bg-secondary border border-border lg:hidden shrink-0 flex items-center justify-center"
             >
               <ShoppingCart className="w-4 h-4 text-primary" />
               {itemCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-4 h-4 flex items-center justify-center px-0.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full">
+                <span className="absolute -top-1 -right-1 min-w-4 h-4 flex items-center justify-center px-0.5 bg-primary text-primary-foreground text-[9px] font-bold">
                   {itemCount}
                 </span>
               )}
@@ -1358,57 +1681,26 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Main Content - Add top padding to account for fixed status bar, bottom padding for status bars */}
-      <div className={`pt-[2.5rem] ${(recentSoldItems.length > 0 || recentGCashTransactions.length > 0) ? (recentSoldItems.length > 0 && recentGCashTransactions.length > 0 ? 'pb-[3rem]' : 'pb-[1.5rem]') : ''} p-3 sm:p-4 lg:p-6`}>
-        <div className={`w-full mx-auto flex gap-4 lg:gap-6 ${
-          (recentSoldItems.length > 0 || recentGCashTransactions.length > 0)
-            ? (recentSoldItems.length > 0 && recentGCashTransactions.length > 0 
-                ? 'h-[calc(100vh-2.5rem-3rem)]' 
-                : 'h-[calc(100vh-2.5rem-1.5rem)]')
-            : 'h-[calc(100vh-2.5rem-1.5rem)] sm:h-[calc(100vh-2.5rem-2rem)] lg:h-[calc(100vh-2.5rem-3rem)]'
-        }`}>
+      {/* Main Content - Stretch to full height */}
+          <div className={`pt-16 flex-1 flex flex-col w-full ${(recentSoldItems.length > 0 || recentGCashTransactions.length > 0) ? (recentSoldItems.length > 0 && recentGCashTransactions.length > 0 ? 'pb-20' : 'pb-16') : 'pb-16'}`}>
+        <div className="w-full h-full flex gap-0">
         {/* Main Content */}
-        <main className="flex-1 flex flex-col min-w-0">
+        <main className="flex-1 flex flex-col min-w-0 w-full h-full">
 
-          {/* Status Bar - Show recently added items when cart is not visible */}
-          {!cartOpen && recentlyAddedItems.length > 0 && (
-            <div className="mb-4 px-4">
-              <div className="glass-panel rounded-lg p-3 flex items-center gap-2 overflow-x-auto scrollbar-hide">
-                <ShoppingCart className="w-4 h-4 text-primary shrink-0" />
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  {recentlyAddedItems.map((item, index) => (
-                    <div
-                      key={`${item.product.id}-${item.timestamp}-${index}`}
-                      className="flex items-center gap-1.5 shrink-0 bg-primary/10 px-2 py-1 rounded-md text-sm"
-                    >
-                      <span className="font-medium text-foreground whitespace-nowrap">
-                        {item.product.name}
-                      </span>
-                      {item.quantity > 1 && (
-                        <span className="text-xs text-muted-foreground bg-primary/20 px-1.5 py-0.5 rounded font-mono">
-                          x{item.quantity}
-                        </span>
-                      )}
-                      {index < recentlyAddedItems.length - 1 && (
-                        <span className="text-muted-foreground mx-1">•</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Search Area */}
           <div className="flex-1 flex flex-col items-center justify-start pt-4 sm:pt-8 lg:pt-12">
-            <div className="w-full max-w-2xl mb-6">
+            <div className="w-full mb-3">
               <ProductSearch
                 products={products}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 onProductSelect={handleProductSelect}
                 onAddNewProduct={handleAddNewProduct}
+                onAddVariation={handleAddVariation}
                 searchInputRef={searchInputRef}
+                gcashEnabled={gcashEnabled}
+                showStockStatus={showStockStatus}
               />
             </div>
 
@@ -1424,30 +1716,46 @@ const Index = () => {
                     <button
                       key={product.id}
                       onClick={() => handleProductSelect(product)}
-                      className="flex flex-col items-center p-2 bg-secondary/50 hover:bg-secondary rounded-lg transition-colors group"
+                      className="flex flex-col items-center p-2 bg-secondary/50 hover:bg-secondary transition-colors group"
                     >
                       {/* Thumbnail */}
-                      {product.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="w-full aspect-square object-cover rounded-lg mb-2 group-hover:opacity-80 transition-opacity"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                            if (fallback) fallback.style.display = 'flex';
-                          }}
-                        />
-                      ) : null}
-                      <div 
-                        className={`w-full aspect-square bg-secondary rounded-lg mb-2 items-center justify-center ${product.image_url ? 'hidden' : 'flex'}`}
-                      >
-                        <Package className="w-6 h-6 text-muted-foreground/50" />
-                      </div>
+                      {(() => {
+                        const isLoad = isLoadProduct(product);
+                        if (isLoad) {
+                          return (
+                            <div className="w-full aspect-square bg-info/10 mb-2 items-center justify-center flex">
+                              <Zap className="w-8 h-8 text-info" />
+                            </div>
+                          );
+                        }
+                        return (
+                          <>
+                            {product.image_url ? (
+                              <img
+                                src={product.image_url}
+                                alt={product.name}
+                                className="w-full aspect-square object-cover mb-1"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                  if (fallback) fallback.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div 
+                              className={`w-full aspect-square bg-secondary mb-2 items-center justify-center ${product.image_url ? 'hidden' : 'flex'}`}
+                            >
+                              <Package className="w-6 h-6 text-muted-foreground/50" />
+                            </div>
+                          </>
+                        );
+                      })()}
                       
-                      {/* Price below thumbnail - show funds for GCash */}
+                      {/* Price below thumbnail - show funds for GCash, icon for Load */}
                       {(() => {
                         const isGcash = product.name.toUpperCase() === "GCASH" || product.name.toUpperCase() === "GCASH SERVICE";
+                        const isLoad = isLoadProduct(product);
+                        
                         if (isGcash) {
                           return (
                             <div className="text-xs font-mono font-semibold space-y-0.5">
@@ -1461,6 +1769,16 @@ const Index = () => {
                             </div>
                           );
                         }
+                        
+                        if (isLoad) {
+                          return (
+                            <div className="flex items-center justify-center gap-1 text-xs text-info font-semibold">
+                              <Zap className="w-4 h-4" />
+                              <span>Load</span>
+                            </div>
+                          );
+                        }
+                        
                         return (
                           <div className="text-xs font-mono text-primary font-semibold">
                             ₱{product.price.toFixed(2)}
@@ -1476,7 +1794,7 @@ const Index = () => {
 
           {/* Keyboard Hint - desktop only */}
           <footer className="hidden lg:block mt-auto pt-4 text-center text-sm text-muted-foreground">
-            <kbd className="px-2 py-1 bg-secondary rounded text-xs font-mono">ESC</kbd>
+            <kbd className="px-2 py-1 bg-secondary text-xs font-mono">ESC</kbd>
             {" "}to clear search
           </footer>
         </main>
@@ -1496,7 +1814,7 @@ const Index = () => {
             setReceiptItems(null);
             setReceiptPayment(null);
           }}
-          showReceipt={showReceiptInCart}
+          showReceipt={showReceiptInCart && !showChangeDialog}
           receiptItems={receiptItems}
           receiptPayment={receiptPayment}
           onCloseReceipt={handleCloseReceipt}
@@ -1513,6 +1831,15 @@ const Index = () => {
         />
       )}
 
+      {/* Add Product Variation Dialog */}
+      {variationProduct && (
+        <AddProductVariationDialog
+          product={variationProduct}
+          onConfirm={handleVariationConfirm}
+          onCancel={() => setVariationProduct(null)}
+        />
+      )}
+
       {/* Payment Dialog */}
       {showPayment && (
         <PaymentDialog
@@ -1523,8 +1850,16 @@ const Index = () => {
         />
       )}
 
-      {/* Receipt Dialog - Only show if not showing in cart */}
-      {receiptItems && receiptPayment && !showReceiptInCart && (
+      {/* Change Dialog - Show before receipt if there's change */}
+      {showChangeDialog && (
+        <ChangeDialog
+          change={changeAmount}
+          onClose={handleChangeDialogClose}
+        />
+      )}
+
+      {/* Receipt Dialog - Only show if not showing in cart and change dialog is not open */}
+      {receiptItems && receiptPayment && !showReceiptInCart && !showChangeDialog && (
         <ReceiptDialog
           items={receiptItems}
           paymentDetails={receiptPayment}
@@ -1540,6 +1875,19 @@ const Index = () => {
           onCancel={() => {
             setShowGcashDialog(false);
             setGcashProduct(null);
+            setInitialGcashTransactionType(undefined);
+          }}
+          initialTransactionType={initialGcashTransactionType}
+        />
+      )}
+
+      {showLoadDialog && (
+        <LoadTransactionDialog
+          currentCreditsBalance={gcashCredits}
+          onConfirm={handleLoadTransaction}
+          onCancel={() => {
+            setShowLoadDialog(false);
+            setSearchQuery("");
           }}
         />
       )}

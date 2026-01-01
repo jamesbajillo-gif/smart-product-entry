@@ -102,9 +102,40 @@ export async function apiRequest<T>(
     
     // Check if response is ok before parsing
     if (!response.ok) {
+      // Try to get error details from response
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      let errorDetails = null;
+      
+      try {
+        const errorText = await response.text();
+        if (errorText) {
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error || errorJson.message || errorMessage;
+            errorDetails = errorJson;
+          } catch {
+            // If not JSON, use the text as error message (truncate if too long)
+            errorMessage = errorText.length > 500 
+              ? errorText.substring(0, 500) + '...' 
+              : errorText;
+          }
+        }
+      } catch (e) {
+        console.error("Could not read error response:", e);
+      }
+      
+      console.error("API Error Response:", {
+        status: response.status,
+        statusText: response.statusText,
+        url: url.toString(),
+        method: method,
+        errorDetails,
+        errorMessage,
+      });
+      
       return {
         success: false,
-        error: `HTTP ${response.status}: ${response.statusText}`,
+        error: errorMessage,
       };
     }
     
@@ -209,20 +240,76 @@ export const productsApi = {
       ? productResult.data.find((p: any) => String(p.id) === id)
       : null;
     
+    // Validate image_url length if it's a base64 data URL
+    if (data.image_url && data.image_url.startsWith('data:image')) {
+      // TEXT column supports up to 65,535 characters
+      // Warn if approaching limit (leave some buffer)
+      if (data.image_url.length > 60000) {
+        console.warn("Image URL is very long, may cause issues:", data.image_url.length);
+        return {
+          success: false,
+          error: "Image data too large. Please use a smaller image or external URL.",
+        };
+      }
+    }
+    
     const operatorName = getCurrentOperator();
     // Convert boolean to 1/0 for MySQL if provided
-    const updateData = {
-      ...data,
-      updated_by: operatorName,
+    // Filter out undefined values and optional columns that may not exist in database
+    const updateData: any = {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.price !== undefined && { price: data.price }),
+      ...(data.category !== undefined && { category: data.category }),
+      ...(data.image_url !== undefined && { image_url: data.image_url }),
+      ...(data.stock_quantity !== undefined && { stock_quantity: data.stock_quantity }),
+      ...(data.low_stock_threshold !== undefined && { low_stock_threshold: data.low_stock_threshold }),
       ...(data.skip_stock_tracking !== undefined && { 
         skip_stock_tracking: data.skip_stock_tracking ? 1 : 0 
       }),
+      ...(data.variations !== undefined && { variations: data.variations }),
+      // Only include optional columns if they're explicitly provided and not undefined
+      // These columns may not exist in all databases, so we'll retry without them if needed
+      ...(data.suppliers !== undefined && { suppliers: data.suppliers }),
+      ...(data.services !== undefined && { services: data.services }),
+      // Only include updated_by - server should handle gracefully if column doesn't exist
+      updated_by: operatorName,
     };
+    
     const result = await apiRequest("PUT", {
       table: "products",
       id,
       data: updateData,
     });
+    
+    // If the error mentions missing columns, retry without them
+    if (!result.success && result.error && (
+      result.error.includes("Unknown column") ||
+      result.error.includes("doesn't exist") ||
+      result.error.toLowerCase().includes("column") ||
+      result.error.includes("updated_by") ||
+      result.error.includes("services") ||
+      result.error.includes("suppliers")
+    )) {
+      console.warn("Retrying update without optional columns due to:", result.error);
+      const retryData: any = { ...data };
+      
+      // Remove optional columns that may not exist
+      delete retryData.services;
+      delete retryData.suppliers;
+      delete retryData.updated_by;
+      
+      // Keep skip_stock_tracking conversion
+      if (data.skip_stock_tracking !== undefined) {
+        retryData.skip_stock_tracking = data.skip_stock_tracking ? 1 : 0;
+      }
+      
+      const retryResult = await apiRequest("PUT", {
+        table: "products",
+        id,
+        data: retryData, // Without optional columns
+      });
+      return retryResult;
+    }
     
     // Log transaction
     if (result.success && productBefore) {
@@ -324,6 +411,8 @@ export interface SaleRecord {
   amount_tendered?: number;
   change_amount?: number;
   bottle_deposit_refunded?: number; // 0 = not refunded, 1 = refunded
+  is_unpaid?: number; // 0 = paid, 1 = unpaid
+  unpaid_notes?: string;
   operator_name?: string;
   updated_by?: string;
   created_at?: string;
@@ -372,10 +461,30 @@ export const salesApi = {
           : formatMySQLDateTime(new Date()),
     };
     
-    const result = await apiRequest<{ id: number }>("POST", {
+    let result = await apiRequest<{ id: number }>("POST", {
       table: "sales",
       data: saleData,
     });
+    
+    // If the error mentions missing columns, retry without them
+    if (!result.success && result.error && (
+      result.error.includes("Column not found") ||
+      result.error.includes("Unknown column") ||
+      result.error.includes("is_unpaid") ||
+      result.error.includes("unpaid_notes")
+    )) {
+      console.warn("Retrying sale creation without optional columns due to:", result.error);
+      const retryData: any = { ...saleData };
+      
+      // Remove optional columns that may not exist
+      delete retryData.is_unpaid;
+      delete retryData.unpaid_notes;
+      
+      result = await apiRequest<{ id: number }>("POST", {
+        table: "sales",
+        data: retryData, // Without optional columns
+      });
+    }
     
     // Log transaction
     if (result.success && result.id) {
@@ -414,15 +523,34 @@ export const salesApi = {
       updated_by: operatorName,
     };
     
-    const result = await apiRequest("PUT", {
+    let result = await apiRequest("PUT", {
       table: "sales",
       id,
       data: updateData,
     });
     
+    // If the error mentions missing columns, retry without them
+    if (!result.success && result.error && (
+      result.error.includes("Column not found") ||
+      result.error.includes("Unknown column") ||
+      result.error.includes("updated_by")
+    )) {
+      console.warn("Retrying sale update without optional columns due to:", result.error);
+      const retryData: any = { ...data };
+      
+      // Remove optional columns that may not exist
+      delete retryData.updated_by;
+      
+      result = await apiRequest("PUT", {
+        table: "sales",
+        id,
+        data: retryData, // Without optional columns
+      });
+    }
+    
     // Log transaction
     if (result.success && oldSaleData) {
-      const newSaleData = { ...oldSaleData, ...updateData };
+      const newSaleData = { ...oldSaleData, ...data };
       await logTransaction(
         "sale",
         "update",
@@ -1168,11 +1296,11 @@ export const gcashFundsApi = {
     const transaction: Omit<GCashFundTransaction, "id" | "created_at"> = {
       transaction_type: transactionType,
       amount,
-      service_charge: serviceCharge > 0 ? serviceCharge : undefined,
+      service_charge: serviceCharge || 0, // Always send a number, default to 0
       credits_balance_after: creditsBalanceAfter,
       cash_balance_after: cashBalanceAfter,
-      notes,
-      gcash_number: gcashNumber,
+      notes: notes || undefined,
+      gcash_number: gcashNumber || undefined,
       operator_name: operatorName,
     };
 

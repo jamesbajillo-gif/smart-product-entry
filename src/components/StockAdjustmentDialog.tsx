@@ -302,11 +302,11 @@ export function StockAdjustmentDialog({
   };
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
-      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-2xl animate-scale-in max-h-[95vh] overflow-y-auto flex flex-col">
+    <div className="fixed inset-0 bg-background z-50 flex items-center justify-center animate-fade-in">
+      <div className="glass-panel p-4 sm:p-6 w-full h-full max-w-2xl animate-scale-in max-h-screen overflow-y-auto flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-success/20 rounded-lg">
+            <div className="p-2 bg-success/20">
               <Truck className="w-5 h-5 text-success" />
             </div>
             <div className="flex-1">
@@ -319,7 +319,7 @@ export function StockAdjustmentDialog({
                     const value = e.target.value;
                     setSelectedVariationId(value === "base" ? null : value);
                   }}
-                  className="mt-1 w-full px-3 py-1.5 text-sm bg-input rounded-lg text-foreground border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="mt-1 w-full px-3 py-1.5 text-sm bg-input text-foreground border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   <option value="base">
                     {product.name}

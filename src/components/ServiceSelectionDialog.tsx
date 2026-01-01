@@ -52,16 +52,16 @@ export function ServiceSelectionDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background animate-fade-in"
       onKeyDown={handleKeyDown}
     >
       <div
-        className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col"
+        className="glass-panel p-4 sm:p-6 w-full h-full max-w-md max-h-screen overflow-y-auto animate-scale-in flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-lg">
+            <div className="p-2 bg-primary/20">
               <X className="w-5 h-5 text-primary" />
             </div>
             <div>
@@ -71,7 +71,7 @@ export function ServiceSelectionDialog({
           </div>
           <button
             onClick={onCancel}
-            className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            className="p-2 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -102,7 +102,7 @@ export function ServiceSelectionDialog({
                           toggleService(service);
                         }
                       }}
-                      className={`w-full p-3 rounded-lg border-2 transition-all ${
+                      className={`w-full p-3 border-2 transition-all ${
                         isSelected
                           ? "border-primary bg-primary/10"
                           : "border-border bg-secondary/30 hover:border-primary/50"
@@ -138,7 +138,7 @@ export function ServiceSelectionDialog({
           </div>
 
           {/* Price Summary */}
-          <div className="p-4 bg-secondary/30 rounded-lg border border-border/50">
+          <div className="p-4 bg-secondary/30 border border-border/50">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-muted-foreground">Product Price</span>
               <span className="text-sm font-mono text-foreground">

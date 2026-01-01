@@ -35,7 +35,8 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   DollarSign,
-  Pencil
+  Pencil,
+  AlertCircle
 } from "lucide-react";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 
@@ -666,13 +667,26 @@ export default function SalesHistory() {
                                   <Smartphone className="w-4 h-4 text-info" />
                                 )}
                                 <div>
-                                  <p className="font-medium text-foreground">
-                                    {itemCount} item{itemCount !== 1 ? "s" : ""}
-                                  </p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium text-foreground">
+                                      {itemCount} item{itemCount !== 1 ? "s" : ""}
+                                    </p>
+                                    {sale.is_unpaid && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-warning/20 text-warning text-xs font-semibold rounded border border-warning/50">
+                                        <AlertCircle className="w-3 h-3" />
+                                        UNPAID
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                                     <Calendar className="w-3 h-3" />
                                     {formatDate(sale.created_at)}
                                   </p>
+                                  {sale.is_unpaid && sale.unpaid_notes && (
+                                    <p className="text-xs text-warning mt-1 italic">
+                                      {sale.unpaid_notes}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               <p className="font-mono font-bold text-primary">
@@ -783,6 +797,20 @@ export default function SalesHistory() {
                   })}
                 </div>
               </div>
+
+              {selectedSale.is_unpaid && (
+                <div className="bg-warning/20 border-2 border-warning/50 p-3 rounded-lg mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="w-5 h-5 text-warning" />
+                    <span className="font-bold text-warning">UNPAID TRANSACTION</span>
+                  </div>
+                  {selectedSale.unpaid_notes && (
+                    <div className="text-sm text-foreground">
+                      <span className="font-semibold">Notes:</span> {selectedSale.unpaid_notes}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="border-t border-border pt-4 space-y-2">
                 <div className="flex justify-between font-bold">

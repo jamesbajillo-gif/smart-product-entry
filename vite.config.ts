@@ -11,6 +11,14 @@ export default defineConfig(({ mode }) => ({
     allowedHosts: [
       "mytchv1.techpinoy.net",
     ],
+    proxy: {
+      '/api/gsearch': {
+        target: 'https://api.techpinoy.net',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/gsearch/, '/gsearch'),
+        secure: true,
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

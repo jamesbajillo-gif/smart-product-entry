@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
-import { X, RefreshCw } from "lucide-react";
+import { X, RefreshCw, ShoppingCart, TrendingDown, TrendingUp, Package, Wallet, Smartphone, ArrowRight, Edit2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { salesApi, SaleRecord, expensesApi, ExpenseRecord, stockApi, StockAdjustmentRecord, storeFundsApi, StoreFundTransaction, productsApi } from "@/services/mysqlApi";
 import { useGCashFunds, GCashFundTransaction } from "@/hooks/useGCashFunds";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
+import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useToast } from "@/hooks/use-toast";
+import { EditSaleDialog } from "@/components/EditSaleDialog";
 import { format } from "date-fns";
 
 interface TransactionHistoryDialogProps {
@@ -36,9 +38,11 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
   const [gcashTransactions, setGcashTransactions] = useState<GCashFundTransaction[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [editingSale, setEditingSale] = useState<SaleRecord | null>(null);
 
   const { history: gcashHistory } = useGCashFunds();
   const { refresh: refreshStoreFunds } = useStoreFunds();
+  const { products } = useMySQLSync();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -256,86 +260,278 @@ export function TransactionHistoryDialog({ onClose }: TransactionHistoryDialogPr
 
 
   const formatDate = (date: Date) => {
-    return format(date, 'MMM dd, yyyy HH:mm');
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const txDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    if (txDate.getTime() === today.getTime()) {
+      return format(date, 'HH:mm');
+    }
+    return format(date, 'MMM dd, HH:mm');
   };
 
-  const formatLogLine = (tx: UnifiedTransaction, prevTx: UnifiedTransaction | null, nextTx: UnifiedTransaction | null) => {
-    const dateStr = formatDate(tx.date);
-    const amountStr = `${tx.amount >= 0 ? '+' : ''}₱${Math.abs(tx.amount).toFixed(2)}`;
-    const typeStr = tx.type.toUpperCase().padEnd(12);
-    
-    // Check if this is part of a grouped sale
-    const isGroupedSale = tx.saleId && tx.type === 'sale';
-    const isFirstInGroup = tx.isFirstInGroup || (isGroupedSale && (!prevTx || prevTx.saleId !== tx.saleId));
-    const isLastInGroup = tx.isLastInGroup || (isGroupedSale && (!nextTx || nextTx.saleId !== tx.saleId));
-    
-    // Check if previous transaction was from a different sale (need blank line before this transaction)
-    const isNewTransaction = !prevTx || !prevTx.saleId || prevTx.saleId !== tx.saleId;
-    
-    let line = '';
-    
-    if (isFirstInGroup && isGroupedSale) {
-      // First item in grouped sale - show with opening bracket
-      line = `${dateStr} | ${typeStr} | [ ${tx.description.padEnd(35)} | ${amountStr}`;
-    } else if (isLastInGroup && isGroupedSale && !isFirstInGroup) {
-      // Last item in grouped sale - show with closing bracket
-      line = `                | ${typeStr} |   ${tx.description.padEnd(35)} | ${amountStr} ]`;
-    } else if (isGroupedSale && !isFirstInGroup && !isLastInGroup) {
-      // Middle item in grouped sale - indented, no brackets
-      line = `                | ${typeStr} |   ${tx.description.padEnd(35)} | ${amountStr}`;
-    } else {
-      // Regular transaction (not grouped or single item sale)
-      line = `${dateStr} | ${typeStr} | ${tx.description.padEnd(40)} | ${amountStr}`;
+  const getTransactionIcon = (type: TransactionType) => {
+    switch (type) {
+      case 'sale':
+        return <ShoppingCart className="w-4 h-4" />;
+      case 'expense':
+      case 'restock':
+        return <TrendingDown className="w-4 h-4" />;
+      case 'store_funds':
+        return <Wallet className="w-4 h-4" />;
+      case 'gcash':
+        return <Smartphone className="w-4 h-4" />;
+      default:
+        return <Package className="w-4 h-4" />;
     }
-    
-    // Add blank line before new transaction (different sale)
-    return isNewTransaction && prevTx ? `\n${line}` : line;
   };
+
+  const getTransactionColor = (type: TransactionType, amount: number) => {
+    if (amount >= 0) {
+      return 'text-success';
+    }
+    return 'text-destructive';
+  };
+
+  const getTransactionTypeLabel = (type: TransactionType) => {
+    switch (type) {
+      case 'sale':
+        return 'Sale';
+      case 'expense':
+        return 'Expense';
+      case 'restock':
+        return 'Restock';
+      case 'store_funds':
+        return 'Store Funds';
+      case 'gcash':
+        return 'GCash';
+      default:
+        return type;
+    }
+  };
+
+  // Group transactions by sale for better display
+  const groupedTransactions = useMemo(() => {
+    const groups: { [key: string]: UnifiedTransaction[] } = {};
+    const ungrouped: UnifiedTransaction[] = [];
+
+    recentTransactions.forEach((tx) => {
+      if (tx.saleId && tx.type === 'sale') {
+        if (!groups[tx.saleId]) {
+          groups[tx.saleId] = [];
+        }
+        groups[tx.saleId].push(tx);
+      } else {
+        ungrouped.push(tx);
+      }
+    });
+
+    return { groups, ungrouped };
+  }, [recentTransactions]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
-      <div className="bg-background border border-border rounded-lg p-4 sm:p-6 w-full max-w-[98vw] max-h-[95vh] flex flex-col animate-scale-in">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground">Recent Transaction Logs</h2>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadAllTransactions}
-              disabled={isLoading}
-              className="gap-2"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+    <div className="fixed inset-0 z-50 bg-background animate-fade-in flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b-2 border-border bg-card shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-primary/10 border-2 border-primary/20">
+            <Package className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">Transaction History</h2>
+            <p className="text-sm text-muted-foreground">Recent {recentTransactions.length} transactions</p>
           </div>
         </div>
-
-        {/* Plain Text Logs */}
-        <div className="flex-1 overflow-y-auto bg-secondary/30 rounded p-4 font-mono text-sm">
-          {isLoading ? (
-            <div className="text-muted-foreground">Loading...</div>
-          ) : recentTransactions.length === 0 ? (
-            <div className="text-muted-foreground">No transactions found</div>
-          ) : (
-            <pre className="whitespace-pre-wrap text-foreground">
-              {recentTransactions.map((tx, index) => 
-                formatLogLine(
-                  tx, 
-                  index > 0 ? recentTransactions[index - 1] : null,
-                  index < recentTransactions.length - 1 ? recentTransactions[index + 1] : null
-                )
-              ).join('\n')}
-            </pre>
-          )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadAllTransactions}
+            disabled={isLoading}
+            className="gap-2 metro-tile"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors metro-tile"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
       </div>
+
+      {/* Transaction List */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-background">
+        {isLoading ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
+            <p>Loading transactions...</p>
+          </div>
+        ) : recentTransactions.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="text-lg">No transactions found</p>
+            <p className="text-sm mt-1">Transactions will appear here as they occur</p>
+          </div>
+        ) : (
+          <>
+            {/* Grouped Sales */}
+            {Object.entries(groupedTransactions.groups).map(([saleId, items]) => {
+                const firstItem = items[0];
+                const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+                // Extract sale ID from saleId (format: "sale-{id}")
+                const saleIdNumber = saleId.replace('sale-', '');
+                const saleRecord = sales.find(s => String(s.id) === saleIdNumber);
+                
+                return (
+                  <div key={saleId} className="bg-card border-2 border-border p-4 space-y-2 metro-tile">
+                    <div className="flex items-center justify-between pb-2 border-b-2 border-border">
+                      <div className="flex items-center gap-3 flex-1">
+                        {getTransactionIcon('sale')}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-semibold text-foreground">
+                              {formatDate(firstItem.date)}
+                            </div>
+                            {saleRecord?.is_unpaid && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-warning/20 text-warning text-xs font-semibold rounded border border-warning/50">
+                                <AlertCircle className="w-3 h-3" />
+                                UNPAID
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {firstItem.paymentMethod || 'Cash'} • {items.length} item{items.length > 1 ? 's' : ''}
+                          </div>
+                          {saleRecord?.is_unpaid && saleRecord.unpaid_notes && (
+                            <div className="text-xs text-warning mt-1 italic">
+                              {saleRecord.unpaid_notes}
+                            </div>
+                          )}
+                        </div>
+                        {saleRecord && (
+                          <button
+                            onClick={() => setEditingSale(saleRecord)}
+                            className="p-2 hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors metro-tile"
+                            title="Edit sale"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className={`text-xl font-bold font-mono ${getTransactionColor('sale', totalAmount)}`}>
+                        ₱{Math.abs(totalAmount).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="space-y-1 pl-8">
+                      {items.map((item, idx) => (
+                        <div key={item.id} className="flex items-center justify-between text-sm py-1">
+                          <span className="text-foreground flex items-center gap-2">
+                            {idx < items.length - 1 && <ArrowRight className="w-3 h-3 text-muted-foreground" />}
+                            {item.description}
+                          </span>
+                          <span className={`font-mono font-semibold ${getTransactionColor('sale', item.amount)}`}>
+                            ₱{Math.abs(item.amount).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {firstItem.operatorName && (
+                      <div className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
+                        Operator: {firstItem.operatorName}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Ungrouped Transactions */}
+              {groupedTransactions.ungrouped.map((tx) => {
+                // Check if this is a sale transaction that can be edited
+                const saleRecord = tx.type === 'sale' && tx.details?.id 
+                  ? sales.find(s => String(s.id) === String(tx.details.id))
+                  : null;
+                
+                return (
+                  <div
+                    key={tx.id}
+                    className="bg-card border-2 border-border p-4 metro-tile"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <div className={`p-3 border-2 ${
+                          tx.amount >= 0 
+                            ? 'bg-success/10 border-success/30' 
+                            : 'bg-destructive/10 border-destructive/30'
+                        }`}>
+                          {getTransactionIcon(tx.type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-base text-foreground truncate">
+                              {tx.description}
+                            </span>
+                            <span className="text-xs px-2 py-1 bg-secondary border border-border text-muted-foreground shrink-0">
+                              {getTransactionTypeLabel(tx.type)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span className="font-medium">{formatDate(tx.date)}</span>
+                            {tx.category && (
+                              <>
+                                <span>•</span>
+                                <span>{tx.category}</span>
+                              </>
+                            )}
+                            {tx.operatorName && (
+                              <>
+                                <span>•</span>
+                                <span>{tx.operatorName}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {saleRecord && (
+                          <button
+                            onClick={() => setEditingSale(saleRecord)}
+                            className="p-2 hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors metro-tile"
+                            title="Edit sale"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <div className={`text-xl font-bold font-mono shrink-0 ${getTransactionColor(tx.type, tx.amount)}`}>
+                          {tx.amount >= 0 ? '+' : ''}₱{Math.abs(tx.amount).toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </>
+        )}
+      </div>
+
+      {/* Edit Sale Dialog */}
+      {editingSale && (
+        <EditSaleDialog
+          sale={editingSale}
+          products={products}
+          onConfirm={() => {
+            setEditingSale(null);
+            loadAllTransactions();
+            toast({
+              title: "Sale Updated",
+              description: "Transaction has been updated successfully",
+            });
+          }}
+          onCancel={() => setEditingSale(null)}
+        />
+      )}
     </div>
   );
 }

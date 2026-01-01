@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { logger } from "@/utils/logger";
+import { parseVariations } from "@/utils/variationParser";
 import { Product, ProductVariation } from "@/types/product";
 import { Button } from "@/components/ui/button";
 import { X, Package, Truck, Box, Layers } from "lucide-react";
@@ -21,7 +23,7 @@ export function RestockVariationDialog({
   
   // Log initial render
   useEffect(() => {
-    console.log('RestockVariationDialog initial render:', {
+    logger.log('RestockVariationDialog initial render:', {
       productName: product.name,
       productCategory: product.category,
       hasVariations: !!product.variations,
@@ -29,69 +31,29 @@ export function RestockVariationDialog({
     });
   }, []);
 
-  // Parse variations - use useMemo to ensure it's computed correctly
+  // Parse variations using optimized parser with caching
   const variations: ProductVariation[] = useMemo(() => {
-    console.log('RestockVariationDialog: Parsing variations for', product.name, {
-      hasVariations: !!product.variations,
-      variationsType: typeof product.variations,
-      variationsValue: product.variations,
-      productKeys: Object.keys(product)
-    });
+    logger.log('RestockVariationDialog: Parsing variations for', product.name);
     
-    // Check if variations property exists
-    if (product.variations === undefined || product.variations === null) {
-      console.log('RestockVariationDialog: No variations property found (undefined/null)');
-      return [];
+    // Use optimized variation parser
+    const parsed = parseVariations(product);
+    
+    // Validate array structure
+    const validVariations = parsed.filter(v => 
+      v && typeof v === 'object' && v.id && typeof v.price === 'number'
+    );
+    
+    if (validVariations.length !== parsed.length) {
+      logger.warn('RestockVariationDialog: Some variations are invalid', {
+        total: parsed.length,
+        valid: validVariations.length
+      });
     }
     
-    // If it's already an array, return it
-    if (Array.isArray(product.variations)) {
-      console.log('RestockVariationDialog: Variations is already an array', product.variations.length);
-      // Validate array structure
-      const validVariations = product.variations.filter(v => 
-        v && typeof v === 'object' && v.id && typeof v.price === 'number'
-      );
-      if (validVariations.length !== product.variations.length) {
-        console.warn('RestockVariationDialog: Some variations are invalid', {
-          total: product.variations.length,
-          valid: validVariations.length
-        });
-      }
-      return validVariations;
-    }
-    
-    // If it's a string, try to parse it
-    if (typeof product.variations === 'string') {
-      const variationsStr = product.variations as string;
-      // Check if it's an empty string
-      if (variationsStr.trim() === '' || variationsStr === 'null' || variationsStr === 'undefined') {
-        console.log('RestockVariationDialog: Variations string is empty or null');
-        return [];
-      }
-      
-      try {
-        const parsed = JSON.parse(variationsStr);
-        console.log('RestockVariationDialog: Parsed from string', parsed);
-        if (Array.isArray(parsed)) {
-          // Validate array structure
-          const validVariations = parsed.filter((v: unknown) => 
-            v && typeof v === 'object' && (v as ProductVariation).id && typeof (v as ProductVariation).price === 'number'
-          );
-          return validVariations;
-        }
-        console.warn('RestockVariationDialog: Parsed value is not an array', parsed);
-        return [];
-      } catch (e) {
-        console.error('RestockVariationDialog: Failed to parse JSON', e, 'String was:', variationsStr.substring(0, 100));
-        return [];
-      }
-    }
-    
-    console.warn('RestockVariationDialog: Unexpected variations type', typeof product.variations, product.variations);
-    return [];
-  }, [product.variations, product.name]);
+    return validVariations;
+  }, [product]);
   
-  console.log('RestockVariationDialog: Final variations', {
+  logger.log('RestockVariationDialog: Final variations', {
     productName: product.name,
     variationsCount: variations.length,
     variations
@@ -103,21 +65,21 @@ export function RestockVariationDialog({
   // For Ice Tube, skip variation selection and go directly to stock dialog
   // IMPORTANT: Only set showStockDialog to true for Ice Tube, never for other products
   useEffect(() => {
-    console.log('RestockVariationDialog useEffect - isIceTube check:', {
+    logger.log('RestockVariationDialog useEffect - isIceTube check:', {
       isIceTube,
       productName: product.name,
       currentShowStockDialog: showStockDialog
     });
     
     if (isIceTube) {
-      console.log('Ice Tube detected, auto-proceeding to stock dialog');
+      logger.log('Ice Tube detected, auto-proceeding to stock dialog');
       setSelectedVariation(null);
       setShowStockDialog(true);
     } else {
       // CRITICAL: Always ensure showStockDialog is false for non-Ice Tube products
       // This prevents auto-showing the stock dialog
       if (showStockDialog) {
-        console.warn('showStockDialog was unexpectedly true for non-Ice Tube product, resetting');
+        logger.warn('showStockDialog was unexpectedly true for non-Ice Tube product, resetting');
       }
       setShowStockDialog(false);
     }
@@ -128,7 +90,7 @@ export function RestockVariationDialog({
   
   // Debug: Log variations
   useEffect(() => {
-    console.log('RestockVariationDialog rendered:', {
+    logger.log('RestockVariationDialog rendered:', {
       productName: product.name,
       isIceTube,
       variationsCount: variations.length,
@@ -175,7 +137,7 @@ export function RestockVariationDialog({
 
   // Debug: Log when dialog state changes
   useEffect(() => {
-    console.log('RestockVariationDialog state:', {
+    logger.log('RestockVariationDialog state:', {
       showStockDialog,
       selectedVariation,
       shouldShowVariationSelection,
@@ -192,18 +154,18 @@ export function RestockVariationDialog({
   if (showStockDialog) {
     if (!isIceTube && selectedVariation === undefined) {
       // This shouldn't happen - showStockDialog is true but no selection was made
-      console.error('ERROR: showStockDialog is true but selectedVariation is undefined for non-Ice Tube product. Resetting.');
+      logger.error('ERROR: showStockDialog is true but selectedVariation is undefined for non-Ice Tube product. Resetting.');
       setShowStockDialog(false);
       // Fall through to render variation dialog below
     } else {
       // Valid case: either Ice Tube OR user made a selection
-      console.log('Showing StockAdjustmentDialog - triggered by:', isIceTube ? 'Ice Tube auto-trigger' : 'user clicked Continue');
+      logger.log('Showing StockAdjustmentDialog - triggered by:', isIceTube ? 'Ice Tube auto-trigger' : 'user clicked Continue');
       return (
         <StockAdjustmentDialog
           product={getProductForStockDialog()}
           onConfirm={handleStockConfirm}
           onCancel={() => {
-            console.log('StockAdjustmentDialog cancelled, going back to variation selection');
+            logger.log('StockAdjustmentDialog cancelled, going back to variation selection');
             setShowStockDialog(false);
             if (!isIceTube) {
               setSelectedVariation(null);
@@ -214,7 +176,7 @@ export function RestockVariationDialog({
     }
   }
 
-  console.log('Rendering RestockVariationDialog with dropdown');
+  logger.log('Rendering RestockVariationDialog with dropdown');
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
       <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-2xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col">
@@ -263,7 +225,7 @@ export function RestockVariationDialog({
                   value={selectedVariation === null ? "base" : (selectedVariation || "")}
                   onChange={(e) => {
                     const value = e.target.value;
-                    console.log('Dropdown changed:', value);
+                    logger.log('Dropdown changed:', value);
                     if (value === "base") {
                       setSelectedVariation(null);
                     } else if (value) {
@@ -300,7 +262,7 @@ export function RestockVariationDialog({
                 </select>
                 <Button
                   onClick={() => {
-                    console.log('Continue button clicked, selectedVariation:', selectedVariation);
+                    logger.log('Continue button clicked, selectedVariation:', selectedVariation);
                     handleVariationSelect(selectedVariation);
                   }}
                   className="w-full mt-3 bg-primary hover:bg-primary/90"

@@ -10,7 +10,10 @@ import {
   SaleRecord,
 } from "@/services/mysqlApi";
 import { initialProducts } from "@/data/products";
+import { logger } from "@/utils/logger";
 import { toast } from "@/hooks/use-toast";
+import { getBottleDepositProduct } from "@/utils/bottleDepositService";
+import { getLoadProduct } from "@/utils/loadService";
 
 type QuantityHistory = Record<string, number[]>;
 
@@ -83,7 +86,7 @@ export function useMySQLSync() {
           failedCount++;
         }
       } catch (error) {
-        console.error("Failed to sync sale:", error);
+        logger.error("Failed to sync sale:", error);
         failedCount++;
       }
     }
@@ -93,7 +96,7 @@ export function useMySQLSync() {
     if (successfulIds.length > 0) {
       savePendingSales(remaining);
       setPendingSales(remaining);
-      console.log(`Synced ${successfulIds.length} pending sale(s)`);
+      logger.log(`Synced ${successfulIds.length} pending sale(s)`);
 
       // Show toast notification
       toast({
@@ -120,34 +123,53 @@ export function useMySQLSync() {
         // Load products from DB
         const productsResult = await productsApi.getAll();
         if (productsResult.success && productsResult.data && productsResult.data.length > 0) {
-          setProducts(
-            productsResult.data.map((p: any) => {
-              // Parse variations from JSON if present
-              let variations;
-              if (p.variations) {
-                try {
-                  variations = typeof p.variations === 'string' 
-                    ? JSON.parse(p.variations) 
-                    : p.variations;
-                } catch {
-                  variations = undefined;
-                }
+          const dbProducts = productsResult.data.map((p: any) => {
+            // Parse variations from JSON if present
+            let variations;
+            if (p.variations) {
+              try {
+                variations = typeof p.variations === 'string' 
+                  ? JSON.parse(p.variations) 
+                  : p.variations;
+              } catch {
+                variations = undefined;
               }
-              
-              return {
-                id: String(p.id),
-                name: p.name,
-                price: Number(p.price),
-                category: p.category as Product["category"],
-                image_url: p.image_url || undefined,
-                stock_quantity: p.stock_quantity ?? 0,
-                low_stock_threshold: p.low_stock_threshold ?? 5,
-                // Convert MySQL TINYINT (0/1) to boolean
-                skip_stock_tracking: Boolean(p.skip_stock_tracking),
-                variations,
-              };
-            })
-          );
+            }
+            
+            return {
+              id: String(p.id),
+              name: p.name,
+              price: Number(p.price),
+              category: p.category as Product["category"],
+              image_url: p.image_url || undefined,
+              stock_quantity: p.stock_quantity ?? 0,
+              low_stock_threshold: p.low_stock_threshold ?? 5,
+              // Convert MySQL TINYINT (0/1) to boolean
+              skip_stock_tracking: Boolean(p.skip_stock_tracking),
+              variations,
+            };
+          });
+          
+          // Add Bottle Deposit product if it doesn't exist
+          const bottleDepositProduct = getBottleDepositProduct(10.00);
+          const hasBottleDeposit = dbProducts.some(p => p.id === bottleDepositProduct.id);
+          if (!hasBottleDeposit) {
+            dbProducts.push(bottleDepositProduct);
+          }
+          
+          // Add Load product if it doesn't exist
+          const loadProduct = getLoadProduct();
+          const hasLoad = dbProducts.some(p => p.id === loadProduct.id);
+          if (!hasLoad) {
+            dbProducts.push(loadProduct);
+          }
+          
+          setProducts(dbProducts);
+        } else {
+          // If no products from DB, use initial products and add Bottle Deposit and Load
+          const bottleDepositProduct = getBottleDepositProduct(10.00);
+          const loadProduct = getLoadProduct();
+          setProducts([...initialProducts, bottleDepositProduct, loadProduct]);
         }
 
         // Load quantity history from DB
@@ -164,11 +186,32 @@ export function useMySQLSync() {
           setQuantityHistory(history);
         }
       } else {
-        // Fallback to session storage
+        // Fallback to session storage or initial products
         const storedProducts = sessionStorage.getItem("pos-products");
+        const bottleDepositProduct = getBottleDepositProduct(10.00);
+        const loadProduct = getLoadProduct();
+        
         if (storedProducts) {
-          setProducts(JSON.parse(storedProducts));
+          try {
+            const parsed = JSON.parse(storedProducts);
+            const hasBottleDeposit = parsed.some((p: Product) => p.id === bottleDepositProduct.id);
+            if (!hasBottleDeposit) {
+              parsed.push(bottleDepositProduct);
+            }
+            const hasLoad = parsed.some((p: Product) => p.id === loadProduct.id);
+            if (!hasLoad) {
+              parsed.push(loadProduct);
+            }
+            setProducts(parsed);
+          } catch {
+            // If parsing fails, use initial products + Bottle Deposit + Load
+            setProducts([...initialProducts, bottleDepositProduct, loadProduct]);
+          }
+        } else {
+          // Use initial products + Bottle Deposit + Load
+          setProducts([...initialProducts, bottleDepositProduct, loadProduct]);
         }
+        
         const storedHistory = sessionStorage.getItem("pos-qty-history");
         if (storedHistory) {
           setQuantityHistory(JSON.parse(storedHistory));
@@ -189,7 +232,7 @@ export function useMySQLSync() {
       setIsOnline(connected);
 
       if (connected && wasOffline) {
-        console.log("Connection restored, syncing pending sales...");
+        logger.log("Connection restored, syncing pending sales...");
         await syncPendingSales();
       } else if (connected && pendingSales.length > 0) {
         await syncPendingSales();
@@ -473,6 +516,8 @@ export function useMySQLSync() {
           payment_method: paymentDetails.method,
           amount_tendered: paymentDetails.amountTendered,
           change_amount: paymentDetails.change,
+          is_unpaid: paymentDetails.isUnpaid ? 1 : 0,
+          unpaid_notes: paymentDetails.unpaidNotes || undefined,
           created_at: new Date().toISOString(),
         };
 
@@ -499,7 +544,7 @@ export function useMySQLSync() {
                 try {
                   await quantityHistoryApi.upsert(update.productId, update.quantities);
                 } catch (error) {
-                  console.error(`Failed to update quantity history for ${update.productId}:`, error);
+                  logger.error(`Failed to update quantity history for ${update.productId}:`, error);
                   // Continue with other updates even if one fails
                 }
               }
@@ -511,7 +556,7 @@ export function useMySQLSync() {
                   try {
                     await stockApi.recordSale(item.product.id, item.quantity, product.stock_quantity);
                   } catch (error) {
-                    console.error(`Failed to update stock for product ${item.product.id}:`, error);
+                    logger.error(`Failed to update stock for product ${item.product.id}:`, error);
                     // Continue with other products even if one fails
                   }
                 }
@@ -529,7 +574,7 @@ export function useMySQLSync() {
               return;
             }
           } catch (error) {
-            console.error("Failed to record sale online:", error);
+            logger.error("Failed to record sale online:", error);
           }
         }
 
@@ -544,10 +589,10 @@ export function useMySQLSync() {
         const updatedPending = [...pendingSales, pendingSale];
         savePendingSales(updatedPending);
         setPendingSales(updatedPending);
-        console.log("Sale queued for sync:", pendingSale.id);
+        logger.log("Sale queued for sync:", pendingSale.id);
       } catch (error) {
         // Catch any unexpected errors to prevent UI from breaking
-        console.error("Unexpected error in recordSale:", error);
+        logger.error("Unexpected error in recordSale:", error);
         // Still queue the sale locally so it can be synced later
         try {
           // Fallback: simpler sale data structure (still include customTotal if present)
@@ -582,6 +627,8 @@ export function useMySQLSync() {
             payment_method: paymentDetails.method,
             amount_tendered: paymentDetails.amountTendered,
             change_amount: paymentDetails.change,
+            is_unpaid: paymentDetails.isUnpaid ? 1 : 0,
+            unpaid_notes: paymentDetails.unpaidNotes || undefined,
             created_at: new Date().toISOString(),
           };
           const pendingSale: PendingSale = {
@@ -594,7 +641,7 @@ export function useMySQLSync() {
           savePendingSales(updatedPending);
           setPendingSales(updatedPending);
         } catch (fallbackError) {
-          console.error("Failed to queue sale even in fallback:", fallbackError);
+          logger.error("Failed to queue sale even in fallback:", fallbackError);
         }
       }
     },

@@ -133,11 +133,11 @@ export function AddExpenseDialog({ product, availableFunds, onClose, onSuccess }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in p-2 sm:p-4">
-      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-2xl max-h-[95vh] overflow-y-auto animate-scale-in flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background animate-fade-in">
+      <div className="glass-panel p-4 sm:p-6 w-full h-full max-w-2xl max-h-screen overflow-y-auto animate-scale-in flex flex-col">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-lg">
+            <div className="p-2 bg-primary/20">
               <Receipt className="w-5 h-5 text-primary" />
             </div>
             <div>
@@ -147,7 +147,7 @@ export function AddExpenseDialog({ product, availableFunds, onClose, onSuccess }
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            className="p-2 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-5 h-5" />
           </button>

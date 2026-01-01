@@ -583,7 +583,31 @@ export default function SalesAnalytics() {
             restockInfo
           );
 
-          toast.success(`Restocked ${restockProduct.name} variation: +${quantity} units`);
+          // Create expense record for variation restocking if unit cost is provided
+          if (type === 'add' && restockData?.unitCost && restockData.unitCost > 0) {
+            const variationName = variation.name && typeof variation.name === 'string' 
+              ? `${restockProduct.name} - ${variation.name.trim()}`
+              : restockProduct.name;
+            const totalCost = quantity * restockData.unitCost;
+            
+            await expensesApi.create({
+              product_id: `${restockProduct.id}-${variation.id}`,
+              product_name: variationName,
+              quantity: quantity,
+              unit_cost: restockData.unitCost,
+              total_cost: totalCost,
+              supplier: restockData.supplier || undefined,
+              notes: restockData.notes || undefined,
+              category: "restock",
+              payment_source: restockData.paymentSource || "cash",
+            });
+          }
+
+          const costInfo = restockData?.unitCost && type === 'add'
+            ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
+            : '';
+
+          toast.success(`Restocked ${restockProduct.name} variation: +${quantity} units${costInfo}`);
           // Reload products
           const productsResult = await productsApi.getAll();
           if (productsResult.success && productsResult.data) {
@@ -629,7 +653,27 @@ export default function SalesAnalytics() {
         );
 
         if (result.success) {
-          toast.success(`Restocked ${restockProduct.name}: +${quantity} units`);
+          // Create expense record if unit cost is provided (tagged as "restock")
+          if (type === 'add' && restockData?.unitCost && restockData.unitCost > 0) {
+            const totalCost = quantity * restockData.unitCost;
+            await expensesApi.create({
+              product_id: restockProduct.id,
+              product_name: restockProduct.name,
+              quantity: quantity,
+              unit_cost: restockData.unitCost,
+              total_cost: totalCost,
+              supplier: restockData.supplier || undefined,
+              notes: restockData.notes || undefined,
+              category: "restock",
+              payment_source: restockData.paymentSource || "cash",
+            });
+          }
+
+          const costInfo = restockData?.unitCost && type === 'add'
+            ? ` (₱${(quantity * restockData.unitCost).toFixed(2)} total)`
+            : '';
+
+          toast.success(`Restocked ${restockProduct.name}: +${quantity} units${costInfo}`);
           // Reload products
           const productsResult = await productsApi.getAll();
           if (productsResult.success && productsResult.data) {

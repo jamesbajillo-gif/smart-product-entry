@@ -98,11 +98,11 @@ export function GCashTransactionsDialog({ sales, onClose }: GCashTransactionsDia
   }, [gcashTransactions]);
 
   return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-2 sm:p-4">
-      <div className="glass-panel rounded-xl p-4 sm:p-6 w-full max-w-5xl max-h-[95vh] flex flex-col animate-scale-in">
+    <div className="fixed inset-0 bg-background z-50 flex items-center justify-center animate-fade-in">
+      <div className="glass-panel p-4 sm:p-6 w-full h-full max-w-5xl max-h-screen flex flex-col animate-scale-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/20 rounded-lg">
+            <div className="p-2 bg-primary/20">
               <Smartphone className="w-5 h-5 text-primary" />
             </div>
             <div>
@@ -117,25 +117,25 @@ export function GCashTransactionsDialog({ sales, onClose }: GCashTransactionsDia
 
         {/* Summary Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-          <div className="p-3 bg-secondary/30 rounded-lg">
+          <div className="p-3 bg-secondary/30">
             <p className="text-xs text-muted-foreground">GCASH-IN</p>
             <p className="text-lg font-bold text-success font-mono">
               ₱{totals.totalGCashIn.toFixed(2)}
             </p>
           </div>
-          <div className="p-3 bg-secondary/30 rounded-lg">
+          <div className="p-3 bg-secondary/30">
             <p className="text-xs text-muted-foreground">GCASH-OUT</p>
             <p className="text-lg font-bold text-info font-mono">
               ₱{totals.totalGCashOut.toFixed(2)}
             </p>
           </div>
-          <div className="p-3 bg-secondary/30 rounded-lg">
+          <div className="p-3 bg-secondary/30">
             <p className="text-xs text-muted-foreground">Service Fees</p>
             <p className="text-lg font-bold text-primary font-mono">
               ₱{totals.totalServiceFees.toFixed(2)}
             </p>
           </div>
-          <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
+          <div className="p-3 bg-primary/10 border border-primary/20">
             <p className="text-xs text-muted-foreground">GCASH-MONEY</p>
             <p className="text-lg font-bold text-primary font-mono">
               ₱{totals.totalGCashMoney.toFixed(2)}
@@ -155,9 +155,9 @@ export function GCashTransactionsDialog({ sales, onClose }: GCashTransactionsDia
               {gcashTransactions.map(({ sale, transactionItem, serviceChargeItem, totalAmount, isGCashIn }) => (
                 <div
                   key={sale.id}
-                  className="flex items-start gap-3 p-3 bg-secondary/20 rounded-lg"
+                  className="flex items-start gap-3 p-3 bg-secondary/20"
                 >
-                  <div className={`p-2 rounded-lg mt-0.5 ${isGCashIn ? 'bg-success/20' : 'bg-info/20'}`}>
+                  <div className={`p-2 mt-0.5 ${isGCashIn ? 'bg-success/20' : 'bg-info/20'}`}>
                     {isGCashIn ? (
                       <ArrowDownCircle className="w-4 h-4 text-success" />
                     ) : (

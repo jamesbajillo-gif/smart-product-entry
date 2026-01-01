@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Settings as SettingsIcon, Trash2, AlertTriangle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Settings as SettingsIcon, Trash2, AlertTriangle, RefreshCw, Smartphone, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ResetFinancialDataDialog } from "@/components/ResetFinancialDataDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 
 export default function Settings() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const { toast } = useToast();
   const { refreshProducts } = useMySQLSync();
   const { refresh: refreshStoreFunds } = useStoreFunds();
+  const [gcashEnabled, setGcashEnabled] = useLocalStorage<boolean>("pos-gcash-enabled", true);
+  const [showStockStatus, setShowStockStatus] = useLocalStorage<boolean>("pos-show-stock-status", true);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/20 p-4 md:p-8">
@@ -37,13 +41,91 @@ export default function Settings() {
         </div>
 
         {/* Settings Tabs */}
-        <Tabs defaultValue="data" className="w-full">
-          <TabsList className="grid w-full grid-cols-1 mb-6">
+        <Tabs defaultValue="general" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsTrigger value="general" className="gap-2">
+              <SettingsIcon className="w-4 h-4" />
+              General
+            </TabsTrigger>
             <TabsTrigger value="data" className="gap-2">
               <AlertTriangle className="w-4 h-4" />
               Data Management
             </TabsTrigger>
           </TabsList>
+
+          {/* General Settings Tab */}
+          <TabsContent value="general" className="mt-0">
+            <div className="window-border bg-[#c0c0c0] p-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-primary/20 border border-black">
+                  <SettingsIcon className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-foreground">General Settings</h2>
+                  <p className="text-sm text-muted-foreground">Configure POS system preferences</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="p-4 bg-muted border border-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="p-2 bg-secondary border border-border">
+                        <Smartphone className="w-5 h-5 text-foreground" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-medium text-foreground mb-1">Enable GCash Transactions</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Allow customers to pay via GCash in the POS system
+                        </p>
+                      </div>
+                    </div>
+                    <Checkbox
+                      checked={gcashEnabled}
+                      onCheckedChange={(checked) => {
+                        setGcashEnabled(checked === true);
+                        toast({
+                          title: checked ? "GCash Enabled" : "GCash Disabled",
+                          description: checked 
+                            ? "GCash payment method is now available in POS"
+                            : "GCash payment method has been disabled in POS",
+                        });
+                      }}
+                      className="ml-4"
+                    />
+                  </div>
+                </div>
+                <div className="p-4 bg-muted border border-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="p-2 bg-secondary border border-border">
+                        <Package className="w-5 h-5 text-foreground" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-medium text-foreground mb-1">Show Stock Status in POS</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Display stock status indicators and out of stock warnings in the POS screen
+                        </p>
+                      </div>
+                    </div>
+                    <Checkbox
+                      checked={showStockStatus}
+                      onCheckedChange={(checked) => {
+                        setShowStockStatus(checked === true);
+                        toast({
+                          title: checked ? "Stock Status Enabled" : "Stock Status Disabled",
+                          description: checked 
+                            ? "Stock status indicators are now visible in POS"
+                            : "Stock status indicators have been hidden in POS",
+                        });
+                      }}
+                      className="ml-4"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
 
           {/* Data Management Tab */}
           <TabsContent value="data" className="mt-0">

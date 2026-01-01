@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Tag, Edit, Plus, Trash2 } from "lucide-react";
+import { X, Tag, Edit, Plus, Trash2, Image, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProductVariation, ProductSupplier } from "@/types/product";
 import { expensesApi } from "@/services/mysqlApi";
@@ -8,7 +8,7 @@ interface EditVariationDialogProps {
   productName: string;
   variation: ProductVariation;
   allVariations?: ProductVariation[]; // All variations for duplicate name checking
-  onConfirm: (variationId: string, newPrice: number, newName?: string, suppliers?: ProductSupplier[]) => void;
+  onConfirm: (variationId: string, newPrice: number, newName?: string, suppliers?: ProductSupplier[], imageUrl?: string) => void;
   onCancel: () => void;
 }
 
@@ -24,6 +24,9 @@ export function EditVariationDialog({
   const [suppliers, setSuppliers] = useState<ProductSupplier[]>(variation.suppliers || []);
   const [availableSuppliers, setAvailableSuppliers] = useState<string[]>([]);
   const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+  const [imageUrl, setImageUrl] = useState(variation.image_url || "");
+  const [imagePreview, setImagePreview] = useState<string | null>(variation.image_url || null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
   
   // Check for duplicate variation names with same price (excluding current variation)
@@ -65,6 +68,8 @@ export function EditVariationDialog({
     setPrice(variation.price.toString());
     setVariationName(variation.name || "");
     setSuppliers(variation.suppliers || []);
+    setImageUrl(variation.image_url || "");
+    setImagePreview(variation.image_url || null);
     requestAnimationFrame(() => priceInputRef.current?.focus());
   }, [variation]);
 
@@ -82,6 +87,52 @@ export function EditVariationDialog({
 
   const handleRemoveSupplier = (supplierId: string) => {
     setSuppliers(suppliers.filter((s) => s.id !== supplierId));
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size must be less than 5MB');
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setImageUrl(base64);
+        setImagePreview(base64);
+      };
+      reader.onerror = () => {
+        alert('Error reading image file');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleImageUrlChange = (url: string) => {
+    setImageUrl(url);
+    // If it's a valid image URL or base64, show preview
+    if (url && (url.startsWith('http') || url.startsWith('data:image'))) {
+      setImagePreview(url);
+    } else {
+      setImagePreview(null);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageUrl("");
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   const handleSupplierChange = (supplierId: string, field: keyof ProductSupplier, value: string | number | undefined) => {
@@ -114,7 +165,8 @@ export function EditVariationDialog({
         variation.id, 
         numericPrice, 
         trimmedName || undefined,
-        validSuppliers.length > 0 ? validSuppliers : undefined
+        validSuppliers.length > 0 ? validSuppliers : undefined,
+        imageUrl || undefined
       );
     }
   };
@@ -341,6 +393,72 @@ export function EditVariationDialog({
                 ))}
               </div>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
+              Variation Image (Optional)
+            </label>
+            <div className="space-y-2">
+              {/* Image Preview */}
+              {imagePreview && (
+                <div className="relative w-full aspect-square max-w-[200px] border border-border bg-muted/50 rounded overflow-hidden">
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                    onError={() => setImagePreview(null)}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    className="absolute top-2 right-2 p-1 bg-destructive text-destructive-foreground rounded hover:bg-destructive/90"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              
+              {/* File Upload */}
+              <div className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="edit-variation-image-upload"
+                />
+                <label
+                  htmlFor="edit-variation-image-upload"
+                  className="flex-1 px-4 py-3 bg-muted/50 border border-border text-foreground cursor-pointer hover:bg-muted flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-5 h-5" />
+                  <span className="text-sm">Upload Image</span>
+                </label>
+              </div>
+              
+              {/* Image URL Input */}
+              <div className="relative">
+                <Image className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={imageUrl}
+                  onChange={(e) => handleImageUrlChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.stopPropagation();
+                      onCancel();
+                    }
+                  }}
+                  className="w-full pl-10 pr-3 py-3 bg-input border border-border text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  placeholder="Image URL or base64 data (optional)"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Supports: https://... or data:image/...;base64,...
+              </p>
+            </div>
           </div>
 
           <div className="flex gap-3 pt-2">
