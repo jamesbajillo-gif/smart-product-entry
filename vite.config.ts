@@ -10,6 +10,8 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     allowedHosts: [
       "mytchv1.techpinoy.net",
+      "localhost",
+      "127.0.0.1",
     ],
     proxy: {
       '/api/gsearch': {
