@@ -15,7 +15,7 @@ import { isLoadProduct } from "@/utils/loadService";
 import { GCashTransactionsDialog } from "@/components/GCashTransactionsDialog";
 import { StoreFundsDialog } from "@/components/StoreFundsDialog";
 import { StoreFundsHistoryDialog } from "@/components/StoreFundsHistoryDialog";
-import { TransactionHistoryDialog } from "@/components/TransactionHistoryDialog";
+import { TransactionTypeHistoryDialog } from "@/components/TransactionTypeHistoryDialog";
 import { SalesLogDialog } from "@/components/SalesLogDialog";
 import { CandiesPromoDialog } from "@/components/CandiesPromoDialog";
 import { ServiceSelectionDialog } from "@/components/ServiceSelectionDialog";
@@ -1548,17 +1548,6 @@ const Index = () => {
               </div>
             </div>
             
-            {/* Load Service - Next to GCash */}
-            {gcashEnabled && (
-              <button
-                onClick={() => setShowLoadDialog(true)}
-                className="flex items-center gap-1.5 px-2 h-full shrink-0 bg-info/10 border border-info/20 hover:bg-info/20 transition-colors"
-                title="Load Transaction"
-              >
-                <Zap className="w-4 h-4 text-info shrink-0" />
-                <span className="text-sm font-medium text-info whitespace-nowrap">Load</span>
-              </button>
-            )}
             
             {/* Pending Sales Count */}
             {pendingSalesCount > 0 && (
@@ -1945,7 +1934,7 @@ const Index = () => {
       )}
 
       {showTransactionHistoryDialog && (
-        <TransactionHistoryDialog
+        <TransactionTypeHistoryDialog
           onClose={() => setShowTransactionHistoryDialog(false)}
         />
       )}
