@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Settings as SettingsIcon, Trash2, AlertTriangle, RefreshCw, Smartphone, Package } from "lucide-react";
+import { ArrowLeft, Settings as SettingsIcon, Trash2, AlertTriangle, RefreshCw, Smartphone, Package, Calendar, Database, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { logout, getOperator } from "@/utils/auth";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ResetFinancialDataDialog } from "@/components/ResetFinancialDataDialog";
+import { SelectiveDataDeletionDialog } from "@/components/SelectiveDataDeletionDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useMySQLSync } from "@/hooks/useMySQLSync";
 import { useStoreFunds } from "@/hooks/useStoreFunds";
@@ -12,6 +14,7 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 
 export default function Settings() {
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [showSelectiveDeleteDialog, setShowSelectiveDeleteDialog] = useState(false);
   const { toast } = useToast();
   const { refreshProducts } = useMySQLSync();
   const { refresh: refreshStoreFunds } = useStoreFunds();
@@ -29,7 +32,7 @@ export default function Settings() {
               Back
             </Button>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-1">
             <div className="p-2 bg-primary/20 rounded-lg">
               <SettingsIcon className="w-5 h-5 text-primary" />
             </div>
@@ -38,6 +41,16 @@ export default function Settings() {
               <p className="text-sm text-muted-foreground">Manage system settings and data</p>
             </div>
           </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="gap-2"
+            onClick={logout}
+            title={`Logout (${getOperator() || "Unknown"})`}
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Logout</span>
+          </Button>
         </div>
 
         {/* Settings Tabs */}
@@ -141,6 +154,42 @@ export default function Settings() {
               </div>
 
               <div className="space-y-4">
+                <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Database className="w-4 h-4 text-warning" />
+                        <h3 className="font-medium text-foreground">Selective Data Deletion</h3>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-3">
+                        Delete records based on date range and table/category selection. Useful for cleaning up old data or removing specific transaction types.
+                      </p>
+                      <ul className="text-xs text-muted-foreground space-y-1 mb-3">
+                        <li className="flex items-center gap-2">
+                          <span className="text-warning">•</span>
+                          Select specific table (Sales, Expenses, GCash, etc.)
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <span className="text-warning">•</span>
+                          Filter by date range (optional)
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <span className="text-warning">•</span>
+                          Safe deletion with confirmation required
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="gap-2 border-warning/30 text-warning hover:bg-warning/10"
+                    onClick={() => setShowSelectiveDeleteDialog(true)}
+                  >
+                    <Calendar className="w-4 h-4" />
+                    Delete by Date & Table
+                  </Button>
+                </div>
+
                 <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -191,6 +240,16 @@ export default function Settings() {
 
         </Tabs>
       </div>
+
+      {/* Selective Data Deletion Dialog */}
+      <SelectiveDataDeletionDialog
+        open={showSelectiveDeleteDialog}
+        onClose={() => setShowSelectiveDeleteDialog(false)}
+        onComplete={async () => {
+          await refreshProducts();
+          await refreshStoreFunds();
+        }}
+      />
 
       {/* Reset Financial Data Dialog */}
       <ResetFinancialDataDialog

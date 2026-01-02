@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EditSaleDialog } from "@/components/EditSaleDialog";
+import { AddBackdatedSaleDialog } from "@/components/AddBackdatedSaleDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useUserPermissions } from "@/hooks/useUserPermissions";
 import { 
@@ -36,7 +37,8 @@ import {
   ArrowUpCircle,
   DollarSign,
   Pencil,
-  AlertCircle
+  AlertCircle,
+  Plus
 } from "lucide-react";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
 
@@ -71,6 +73,7 @@ export default function SalesHistory() {
   const [saleToDelete, setSaleToDelete] = useState<SaleRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [editingSale, setEditingSale] = useState<SaleRecord | null>(null);
+  const [showAddBackdatedSale, setShowAddBackdatedSale] = useState(false);
   const [activeTab, setActiveTab] = useState<"sales" | "gcash" | "expenses">("sales");
   const { toast } = useToast();
   
@@ -433,16 +436,27 @@ export default function SalesHistory() {
                 <p className="text-sm text-muted-foreground">View past transactions</p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto gap-2"
-              onClick={loadSales}
-              disabled={isLoading}
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
+            <div className="ml-auto flex gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-2"
+                onClick={() => setShowAddBackdatedSale(true)}
+              >
+                <Plus className="w-4 h-4" />
+                Add Backdated Sale
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={loadSales}
+                disabled={isLoading}
+              >
+                <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
           </div>
 
           {/* Date Filter Buttons */}
@@ -1205,6 +1219,16 @@ export default function SalesHistory() {
           onCancel={() => setEditingSale(null)}
         />
       )}
+
+      {/* Add Backdated Sale Dialog */}
+      <AddBackdatedSaleDialog
+        open={showAddBackdatedSale}
+        onClose={() => setShowAddBackdatedSale(false)}
+        onComplete={() => {
+          loadSales();
+        }}
+        products={products}
+      />
     </div>
   );
 }

@@ -445,12 +445,13 @@ function ProductSearchComponent({
                         onClick={() => onProductSelect(itemProduct)}
                         className={`w-full flex items-center justify-between p-4 transition-all duration-200 ease-out ${
                           isSelected
-                            ? "bg-primary border-2 border-primary shadow-lg scale-[1.02] overflow-visible z-10"
+                            ? "shadow-lg scale-[1.02] overflow-visible z-10 border-2 border-transparent"
                             : "bg-white border-2 border-transparent hover:border-primary/30 hover:bg-primary/5 hover:shadow-md active:scale-[0.98] overflow-hidden"
                         } ${itemStockStatus === 'out' && showStockStatus ? 'opacity-60' : ''} ${item.isVariation ? 'ml-4 border-l-4 border-primary/50' : ''}`}
                         style={{
                           transform: isSelected ? 'scale(1.02) translateZ(0)' : 'scale(1) translateZ(0)',
-                          willChange: 'transform, background-color, border-color',
+                          willChange: 'transform',
+                          backgroundColor: isSelected ? 'transparent' : undefined,
                         }}
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0 overflow-hidden">

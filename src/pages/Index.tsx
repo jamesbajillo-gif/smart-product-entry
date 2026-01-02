@@ -29,7 +29,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { salesApi, SaleRecord, checkApiConnection } from "@/services/mysqlApi";
 import { logger } from "@/utils/logger";
-import { Terminal, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3, CircleDot, Wallet, Settings, Plus, Calendar, Truck, Zap } from "lucide-react";
+import { Terminal, Receipt, Package, CloudOff, RefreshCw, ShoppingCart, Menu, TrendingUp, Smartphone, BarChart3, CircleDot, Wallet, Settings, Plus, Calendar, Truck, Zap, LogOut } from "lucide-react";
+import { logout, getOperator } from "@/utils/auth";
 
 const Index = () => {
   const {
@@ -1653,6 +1654,15 @@ const Index = () => {
                 <Settings className="w-4 h-4" />
               </Button>
             </Link>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-full w-10 hidden sm:flex"
+              onClick={logout}
+              title={`Logout (${getOperator() || "Unknown"})`}
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
             
             {/* Cart button - mobile only */}
             <button
