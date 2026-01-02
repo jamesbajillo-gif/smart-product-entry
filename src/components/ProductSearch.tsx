@@ -354,9 +354,9 @@ function ProductSearchComponent({
                   const canHaveVariations = parsedVariations.length > 0 || !parentHasPrice;
                   
                   // Create array with base product (only if it has a price) and all variations
-                  const itemsToShow = [
+                  const itemsToShow: Array<{ product: Product; isVariation: boolean; variation: any; isHardcodedGcash?: boolean }> = [
                     // Only include base product if it has a price
-                    ...(parentHasPrice ? [{ product, isVariation: false, variation: null }] : []),
+                    ...(parentHasPrice ? [{ product, isVariation: false, variation: null, isHardcodedGcash: false }] : []),
                     // Include all variations (including hardcoded GCash variations with price 0)
                     ...parsedVariations.filter(v => {
                       // For hardcoded GCash variations, always include them

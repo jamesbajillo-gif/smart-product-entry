@@ -123,7 +123,7 @@ export function useMySQLSync() {
         // Load products from DB
         const productsResult = await productsApi.getAll();
         if (productsResult.success && productsResult.data && productsResult.data.length > 0) {
-          const dbProducts = productsResult.data.map((p: any) => {
+          const dbProducts: Product[] = productsResult.data.map((p: any) => {
             // Parse variations from JSON if present
             let variations;
             if (p.variations) {
