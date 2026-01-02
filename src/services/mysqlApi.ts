@@ -452,7 +452,8 @@ export const salesApi = {
   },
 
   create: async (sale: Omit<SaleRecord, "id"> & { created_at?: string }) => {
-    const operatorName = getCurrentOperator();
+    // Use provided operator_name if available (for backdated sales), otherwise use current operator
+    const operatorName = sale.operator_name || getCurrentOperator();
     const saleData = {
         ...sale,
       operator_name: operatorName,

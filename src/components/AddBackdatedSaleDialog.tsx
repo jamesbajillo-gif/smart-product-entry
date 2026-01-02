@@ -22,6 +22,16 @@ import { salesApi } from "@/services/mysqlApi";
 import { useToast } from "@/hooks/use-toast";
 import { getProductDisplayName } from "@/utils/productDisplay";
 import { parseVariations } from "@/utils/variationParser";
+import { getCurrentOperator } from "@/utils/operator";
+
+// List of operators (same as PasswordProtection)
+const OPERATORS = [
+  "mytch",
+  "moi",
+  "keysia",
+  "shems",
+  "sheena",
+];
 
 // Format date to MySQL compatible format (YYYY-MM-DD HH:MM:SS)
 const formatMySQLDateTime = (date: Date): string => {
@@ -64,6 +74,7 @@ export function AddBackdatedSaleDialog({
   const [amountTendered, setAmountTendered] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedOperator, setSelectedOperator] = useState<string>(() => getCurrentOperator());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -291,7 +302,7 @@ export function AddBackdatedSaleDialog({
       const tendered = parseFloat(amountTendered) || total;
       const change = Math.max(0, tendered - total);
 
-      // Create sale record with custom date
+      // Create sale record with custom date and selected operator
       const saleData = {
         items: JSON.stringify(itemsData),
         total,
@@ -299,6 +310,7 @@ export function AddBackdatedSaleDialog({
         amount_tendered: tendered,
         change_amount: change,
         created_at: formatMySQLDateTime(saleDateTime),
+        operator_name: selectedOperator, // Use selected operator for backdated sale
       };
 
       const result = await salesApi.create(saleData);
@@ -327,6 +339,7 @@ export function AddBackdatedSaleDialog({
         setAmountTendered("");
         setProductSearch("");
         setSelectedIndex(0);
+        setSelectedOperator(getCurrentOperator()); // Reset to current operator
 
         onComplete();
         onClose();
@@ -369,8 +382,8 @@ export function AddBackdatedSaleDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Date and Time Selection */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Date, Time, and Operator Selection */}
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="sale-date">Sale Date</Label>
               <Input
@@ -391,6 +404,25 @@ export function AddBackdatedSaleDialog({
                 onChange={(e) => setSaleTime(e.target.value)}
                 disabled={isSaving}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="operator">Operator</Label>
+              <Select
+                value={selectedOperator}
+                onValueChange={setSelectedOperator}
+                disabled={isSaving}
+              >
+                <SelectTrigger id="operator">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OPERATORS.map((operator) => (
+                    <SelectItem key={operator} value={operator}>
+                      {operator}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
