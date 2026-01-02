@@ -533,7 +533,7 @@ export default function Inventory() {
               const stockStatus = getStockStatus(product);
               const hasVariations = product.variations && (
                 Array.isArray(product.variations) ? product.variations.length > 0 :
-                typeof product.variations === 'string' ? product.variations.trim() !== '' && product.variations !== '[]' : false
+                typeof product.variations === 'string' ? (product.variations as string).trim() !== '' && product.variations !== '[]' : false
               );
 
               return (

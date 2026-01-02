@@ -13,6 +13,13 @@ export interface PaymentDetails {
   change?: number;
   isUnpaid?: boolean;
   unpaidNotes?: string;
+  totalFees?: number;
+  bottleDeposit?: number;
+  bottleDepositBreakdown?: Array<{
+    productName: string;
+    deposit: number;
+    total: number;
+  }>;
 }
 
 interface PaymentDialogProps {

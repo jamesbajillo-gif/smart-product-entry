@@ -4,7 +4,7 @@ import { gcashFundsApi, GCashFundTransaction as GCashFundTransactionDB, checkApi
 // Local transaction interface (for backward compatibility)
 export interface GCashFundTransaction {
   id: string;
-  type: "add" | "gcash-in" | "gcash-out";
+  type: "add" | "add-credits" | "add-cash" | "gcash-in" | "gcash-out";
   amount: number;
   creditsBalance: number; // GCash Credits balance after transaction
   cashBalance: number; // GCash Cash balance after transaction
@@ -12,6 +12,7 @@ export interface GCashFundTransaction {
   notes?: string;
   gcashNumber?: string;
   serviceCharge?: number; // Service charge amount (if applicable)
+  operatorName?: string; // Operator who processed the transaction
 }
 
 // Offline queue key
@@ -43,9 +44,11 @@ const savePendingTransactions = (transactions: ReturnType<typeof loadPendingTran
 
 // Convert DB transaction to local format
 const convertDBToLocal = (dbTx: GCashFundTransactionDB): GCashFundTransaction => {
-  let type: "add" | "gcash-in" | "gcash-out";
+  let type: "add" | "add-credits" | "add-cash" | "gcash-in" | "gcash-out";
   if (dbTx.transaction_type === "gcash-in") type = "gcash-in";
   else if (dbTx.transaction_type === "gcash-out") type = "gcash-out";
+  else if (dbTx.transaction_type === "add-credits") type = "add-credits";
+  else if (dbTx.transaction_type === "add-cash") type = "add-cash";
   else type = "add";
 
   return {
@@ -58,6 +61,7 @@ const convertDBToLocal = (dbTx: GCashFundTransactionDB): GCashFundTransaction =>
     notes: dbTx.notes,
     gcashNumber: dbTx.gcash_number,
     serviceCharge: dbTx.service_charge ? Number(dbTx.service_charge) : undefined,
+    operatorName: (dbTx as any).operator_name,
   };
 };
 
@@ -290,7 +294,7 @@ export function useGCashFunds() {
       // Create local transaction for history
       const localTx: GCashFundTransaction = {
         id: pendingTx.id,
-        type: transactionType === "gcash-in" ? "gcash-in" : transactionType === "gcash-out" ? "gcash-out" : "add",
+        type: transactionType,
         amount,
         creditsBalance: creditsBalanceAfter,
         cashBalance: cashBalanceAfter,

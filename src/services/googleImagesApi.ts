@@ -131,8 +131,8 @@ export async function searchGoogleImages(
     async () => {
       try {
         // Try to use the MySQL API as a proxy
-        const { getApiUrl } = await import('./mysqlApi');
-        const apiUrl = getApiUrl();
+        const { getConfiguredApiUrl } = await import('./mysqlApi');
+        const apiUrl = getConfiguredApiUrl();
         const proxyUrl = apiUrl.replace('/mysql/api.php', '/gsearch-proxy.php');
         
         const response = await fetch(proxyUrl, {
